@@ -1,0 +1,25 @@
+[project]
+name = "open-finance-mcp"
+version = "0.1.0"
+description = "MCP server for free, citable financial data: SEC EDGAR XBRL financials, filings, FRED rates, and market data"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "mcp>=2.2,<3",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+open-finance-mcp = "open_finance_mcp.server:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "anyio>=4", "respx>=0.21"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+markers = ["live: hits the real SEC/FRED/Yahoo endpoints (deselected by default)"]
+addopts = "-m 'not live'"
