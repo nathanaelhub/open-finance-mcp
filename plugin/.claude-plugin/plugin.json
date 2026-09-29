@@ -1,0 +1,26 @@
+{
+  "name": "open-finance",
+  "version": "0.1.0",
+  "description": "Free, citable financial data for comps and DCF work: SEC EDGAR XBRL financials and filings, FRED Treasury yields, market prices and beta. No paid data subscription needed.",
+  "author": { "name": "Nathanael Johnson" },
+  "homepage": "https://github.com/nathanaelhub/open-finance-mcp",
+  "license": "MIT",
+  "userConfig": {
+    "sec_user_agent": {
+      "type": "string",
+      "title": "SEC contact (User-Agent)",
+      "description": "SEC requires automated clients to identify themselves: your name and email, e.g. \"Jane Doe jane@example.com\". Sent only to sec.gov.",
+      "required": true
+    }
+  },
+  "mcpServers": {
+    "open-finance": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/nathanaelhub/open-finance-mcp@v0.1.0", "open-finance-mcp"],
+      "env": {
+        "SEC_USER_AGENT": "${user_config.sec_user_agent}",
+        "OPEN_FINANCE_MCP_CACHE": "${CLAUDE_PLUGIN_DATA}/cache"
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "open-finance",
+  "owner": {
+    "name": "Nathanael Johnson"
+  },
+  "metadata": {
+    "description": "Free, citable financial data for Claude: SEC EDGAR, FRED and market prices as an MCP server"
+  },
+  "plugins": [
+    {
+      "name": "open-finance",
+      "source": "./plugin",
+      "description": "Free, citable financial data (SEC EDGAR, FRED, market prices) for comps and DCF work"
+    }
+  ]
+}
