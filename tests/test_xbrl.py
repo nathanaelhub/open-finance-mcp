@@ -64,7 +64,8 @@ def test_apple_ltm_is_fy_plus_ytd_minus_prior_ytd(facts):
              and x["end"] < fy["end"] and x["end"] >= "2025-06-01"]
     expected = fy["values"]["revenue"]["value"] + cur["val"] - max(prior, key=lambda x: x["filed"])["val"]
     assert ltm["values"]["revenue"]["value"] == expected
-    assert ltm["label"].startswith("LTM (9M YTD")
+    assert ltm["label"] == f"LTM to {ltm['end']}"
+    assert ltm["ytd"] == {"start": ytd_start, "end": ltm["end"], "days": 273}  # 39 weeks
 
 
 def test_fiscal_years_follow_the_company_calendar(facts):

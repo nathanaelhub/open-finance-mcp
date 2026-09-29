@@ -9,7 +9,7 @@ import respx
 from mcp import Client
 
 from open_finance_mcp.fetch import Fetcher
-from open_finance_mcp.server import build_server
+from open_finance_mcp.server import build_server, enterprise_value
 from conftest import FIX, load
 
 UA = "open-finance-mcp tests test@example.com"
@@ -156,3 +156,24 @@ async def test_stdio_entry_point_serves_the_tools(tmp_path):
     async with Client(params) as client:
         names = {t.name for t in (await client.list_tools()).tools}
     assert "get_comps" in names
+
+
+def _column(debt=None, net_debt=None, cash=None):
+    cell = lambda v: None if v is None else {"value": v}  # noqa: E731
+    return {"derived": {"total_debt": cell(debt), "net_debt": cell(net_debt)},
+            "balance_sheet": {"cash": cell(cash), "short_term_investments": None}}
+
+
+def test_ev_is_market_cap_plus_net_debt():
+    assert enterprise_value(100.0, _column(debt=30, net_debt=20, cash=10), False)["enterprise_value"] == 120.0
+
+
+def test_ev_is_null_but_explained_when_no_debt_is_reported():
+    out = enterprise_value(100.0, _column(cash=10), False)
+    assert out["enterprise_value"] is None
+    assert out["enterprise_value_if_debt_free"] == 90.0 and "debt-free" in out["notes"][0]
+
+
+def test_ev_is_not_computed_for_financials():
+    out = enterprise_value(100.0, _column(debt=30, net_debt=20, cash=10), True)
+    assert out["enterprise_value"] is None and out["enterprise_value_if_debt_free"] is None

@@ -99,6 +99,33 @@ def staleness_warning(sub: dict, cited_accessions: set[str]) -> str | None:
             f"that the XBRL company-facts API does not include yet; figures stop at the prior filing.")
 
 
+def enterprise_value(market_cap: float | None, column: dict, financial: bool) -> dict:
+    """EV = market cap + net debt, with an explicit answer when debt is unknown.
+
+    XBRL has no "zero debt" fact: a debt-free company (Monster Beverage) simply
+    reports no debt concepts, which looks the same as debt tagged only by
+    segment. So EV stays null, and a separately labeled debt-free figure is
+    offered for the model to use only after checking the balance sheet.
+    """
+    out = {"enterprise_value": None, "enterprise_value_if_debt_free": None, "notes": []}
+    if market_cap is None or financial:
+        return out
+    net_debt = (column["derived"].get("net_debt") or {}).get("value")
+    if net_debt is not None:
+        out["enterprise_value"] = market_cap + net_debt
+        return out
+    bs = column["balance_sheet"]
+    cash = (bs.get("cash") or {}).get("value")
+    if column["derived"].get("total_debt") is None and cash is not None:
+        sti = (bs.get("short_term_investments") or {}).get("value") or 0.0
+        out["enterprise_value_if_debt_free"] = market_cap - cash - sti
+        out["notes"].append(
+            "No debt concepts in XBRL, so EV and EV multiples are null. If the balance sheet "
+            "confirms the company is debt-free, use enterprise_value_if_debt_free "
+            "(market cap - cash - short-term investments).")
+    return out
+
+
 def build_server(fetcher: Fetcher | None = None) -> MCPServer:
     data = Data(fetcher or Fetcher())
     mcp = MCPServer("open-finance", instructions=INSTRUCTIONS, version="0.1.0")
@@ -288,8 +315,9 @@ def build_server(fetcher: Fetcher | None = None) -> MCPServer:
         rev, ebitda, ni = val(v.get("revenue")), val(d.get("ebitda")), val(v.get("net_income"))
         mcap, net_debt = mkt["market_cap"], val(d.get("net_debt"))
         fin_co = fin["financial_company"]
-        ev = mcap + net_debt if (mcap is not None and net_debt is not None and not fin_co) else None
-        notes = list(fin["warnings"]) + mkt["notes"]
+        evs = enterprise_value(mcap, col, fin_co)
+        ev = evs["enterprise_value"]
+        notes = list(fin["warnings"]) + mkt["notes"] + evs["notes"]
         oi, pretax = val(v.get("operating_income")), val(v.get("pretax_income"))
         if oi and pretax is not None and oi > 0 and abs(pretax - oi) > 0.25 * oi:
             notes.append(
@@ -307,6 +335,7 @@ def build_server(fetcher: Fetcher | None = None) -> MCPServer:
         return {
             "ticker": fin["ticker"], "name": fin["entity_name"], "period": col["label"],
             "price": mkt["price"], "market_cap": mcap, "net_debt": net_debt, "enterprise_value": ev,
+            "enterprise_value_if_debt_free": evs["enterprise_value_if_debt_free"],
             "revenue": rev, "ebitda": ebitda, "net_income": ni,
             "ev_revenue": ratio(ev, rev, "EV/Revenue"),
             "ev_ebitda": ratio(ev, ebitda, "EV/EBITDA"),

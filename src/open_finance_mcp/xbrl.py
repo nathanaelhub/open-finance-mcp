@@ -377,12 +377,14 @@ def _ltm_column(gaap: dict, last_fy: dict) -> dict | None:
                 }
                 break
     inst = {m: _cell(_instant_value(gaap, m, ytd[1], QUARTERLY_FORMS)) for m in INSTANT_CONCEPTS}
-    months = round((date.fromisoformat(ytd[1]) - date.fromisoformat(ytd[0])).days / 30.4)
+    days = (date.fromisoformat(ytd[1]) - date.fromisoformat(ytd[0])).days + 1
     return {
-        "label": f"LTM ({months}M YTD to {ytd[1]})",
+        # Exact span, not "6M": 52/53-week filers (PepsiCo) have 12- and 16-week quarters.
+        "label": f"LTM to {ytd[1]}",
         "start": None,
         "end": ytd[1],
         "type": "ltm",
+        "ytd": {"start": ytd[0], "end": ytd[1], "days": days},
         "values": row,
         "balance_sheet": inst,
         "derived": _derive(row, inst),
