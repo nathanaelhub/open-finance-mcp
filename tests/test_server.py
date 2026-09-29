@@ -1,0 +1,158 @@
+"""End-to-end tool calls through an in-process MCP client, with HTTP mocked."""
+
+import json
+import re
+
+import httpx
+import pytest
+import respx
+from mcp import Client
+
+from open_finance_mcp.fetch import Fetcher
+from open_finance_mcp.server import build_server
+from conftest import FIX, load
+
+UA = "open-finance-mcp tests test@example.com"
+
+# anyio's plugin runs fixture setup, test and teardown in one task, which the
+# MCP client's cancel scopes require (pytest-asyncio splits them).
+pytestmark = pytest.mark.anyio
+
+
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
+
+def result_of(r):
+    """Tool output: list returns arrive as structured content, dicts as JSON text."""
+    if r.is_error:
+        return r.content[0].text
+    if r.structured_content is not None:
+        return r.structured_content
+    return json.loads(r.content[0].text)
+
+
+def mock_upstream(router: respx.MockRouter) -> None:
+    router.get("https://www.sec.gov/files/company_tickers_exchange.json").respond(
+        json=load("company_tickers_exchange.json"))
+    tickers = load("company_tickers_exchange.json")["data"]
+
+    def by_cik(kind):
+        def handler(request):
+            cik = int(re.search(r"CIK(\d{10})", str(request.url)).group(1))
+            t = next((r[2] for r in tickers if r[0] == cik), None)
+            path = FIX / f"{kind}_{t}.json"
+            return httpx.Response(200, json=json.loads(path.read_text())) if path.exists() else httpx.Response(404)
+        return handler
+
+    router.get(url__regex=r"https://data\.sec\.gov/api/xbrl/companyfacts/.*").mock(side_effect=by_cik("facts"))
+    router.get(url__regex=r"https://data\.sec\.gov/submissions/.*").mock(side_effect=by_cik("submissions"))
+    router.get(url__regex=r".*/chart/AAPL\?.*").respond(json=load("chart_AAPL.json"))
+    router.get(url__regex=r".*/chart/%5EGSPC\?.*|.*/chart/\^GSPC\?.*").respond(json=load("chart_GSPC.json"))
+    router.get(url__regex=r"https://fred\.stlouisfed\.org/.*").respond(text=load("fred_DGS10.csv"))
+
+
+@pytest.fixture
+async def call(tmp_path):
+    with respx.mock(assert_all_called=False) as router:
+        mock_upstream(router)
+        fetcher = Fetcher(cache=tmp_path, sec_user_agent=UA)
+        async with Client(build_server(fetcher)) as client:
+            async def _call(tool, args=None):
+                r = await client.call_tool(tool, args or {})
+                return r.is_error, result_of(r)
+            yield _call
+        await fetcher.aclose()
+
+
+async def test_tools_are_listed_read_only(tmp_path):
+    async with Client(build_server(Fetcher(cache=tmp_path, sec_user_agent=UA))) as client:
+        tools = (await client.list_tools()).tools
+    assert {t.name for t in tools} == {"lookup_company", "get_financials", "get_filings",
+                                       "get_market_data", "get_treasury_yield", "get_comps"}
+    assert all(t.annotations.read_only_hint for t in tools)
+
+
+async def test_lookup_matches_ticker_then_name(call):
+    err, out = await call("lookup_company", {"query": "exxon"})
+    assert not err and out["result"][0]["ticker"] == "XOM"
+
+
+async def test_financials_carry_citations_and_no_warnings_for_a_clean_filer(call):
+    err, out = await call("get_financials", {"ticker": "aapl", "years": 2})
+    assert not err
+    assert out["ticker"] == "AAPL" and out["financial_company"] is False and out["warnings"] == []
+    rev = out["periods"][0]["values"]["revenue"]
+    assert out["filings"][rev["accession"]]["url"].startswith("https://www.sec.gov/Archives/")
+
+
+async def test_bank_is_flagged(call):
+    err, out = await call("get_financials", {"ticker": "JPM", "years": 1})
+    assert not err and out["financial_company"] is True
+    assert any("not meaningful" in w for w in out["warnings"])
+
+
+async def test_lagging_xbrl_api_is_flagged(call):
+    err, out = await call("get_financials", {"ticker": "KO", "years": 1})
+    assert not err and any("does not include yet" in w for w in out["warnings"])
+
+
+async def test_new_registrant_explains_itself(call):
+    err, msg = await call("get_financials", {"ticker": "XOM"})
+    assert err and "predecessor CIK" in msg
+
+
+async def test_unknown_ticker(call):
+    err, msg = await call("get_financials", {"ticker": "ZZZZ"})
+    assert err and "lookup_company" in msg
+
+
+async def test_missing_user_agent_is_a_readable_error(tmp_path):
+    with respx.mock(assert_all_called=False) as router:
+        mock_upstream(router)
+        async with Client(build_server(Fetcher(cache=tmp_path, sec_user_agent=""))) as client:
+            r = await client.call_tool("lookup_company", {"query": "AAPL"})
+    assert r.is_error and "SEC_USER_AGENT" in r.content[0].text
+
+
+async def test_filings_filter_by_form(call):
+    err, out = await call("get_filings", {"ticker": "AAPL", "forms": ["10-K"], "limit": 2})
+    assert not err and out["result"] and {f["form"] for f in out["result"]} == {"10-K"}
+    assert out["result"][0]["document_url"].startswith("https://www.sec.gov/Archives/edgar/data/320193/")
+
+
+async def test_treasury_yield_is_latest_observation(call):
+    err, out = await call("get_treasury_yield", {"maturity": "10y"})
+    last_date, last_val = load("fred_DGS10.csv").strip().splitlines()[-1].split(",")
+    assert not err and (out["as_of"], out["yield_pct"]) == (last_date, float(last_val))
+    err, msg = await call("get_treasury_yield", {"maturity": "7Y"})
+    assert err and "10Y" in msg
+
+
+async def test_comps_multiples_follow_from_their_inputs(call):
+    err, out = await call("get_comps", {"tickers": ["AAPL", "ZZZZ"]})
+    assert not err
+    aapl, bad = out["comps"]
+    assert "error" in bad
+    assert aapl["enterprise_value"] == pytest.approx(aapl["market_cap"] + aapl["net_debt"])
+    assert aapl["ev_revenue"] == round(aapl["enterprise_value"] / aapl["revenue"], 2)
+    assert aapl["ev_ebitda"] == round(aapl["enterprise_value"] / aapl["ebitda"], 2)
+    assert aapl["pe"] == round(aapl["market_cap"] / aapl["net_income"], 2)
+    assert out["summary"]["pe"]["n"] == 1
+
+
+async def test_stdio_entry_point_serves_the_tools(tmp_path):
+    """The real transport Claude Code uses: launch the console script over stdio."""
+    import os
+    import sys
+
+    from mcp import StdioServerParameters
+
+    params = StdioServerParameters(
+        command=sys.executable, args=["-m", "open_finance_mcp.server"],
+        env={**os.environ, "SEC_USER_AGENT": UA, "OPEN_FINANCE_MCP_CACHE": str(tmp_path)},
+    )
+    async with Client(params) as client:
+        names = {t.name for t in (await client.list_tools()).tools}
+    assert "get_comps" in names
