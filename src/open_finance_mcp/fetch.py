@@ -40,7 +40,10 @@ class Fetcher:
                  sec_user_agent: str | None = None):
         self._client = client or httpx.AsyncClient(timeout=30.0, follow_redirects=True)
         self._cache = cache if cache is not None else cache_dir()
-        self._sec_ua = sec_user_agent if sec_user_agent is not None else os.environ.get("SEC_USER_AGENT")
+        # The plugin always sets SEC_USER_AGENT (empty when its option is unset),
+        # so OPEN_FINANCE_SEC_USER_AGENT from the parent environment is the fallback.
+        self._sec_ua = (sec_user_agent if sec_user_agent is not None
+                        else os.environ.get("SEC_USER_AGENT") or os.environ.get("OPEN_FINANCE_SEC_USER_AGENT"))
         self._sec_lock = asyncio.Lock()
         self._sec_last = 0.0
 
@@ -72,8 +75,9 @@ class Fetcher:
     async def sec_json(self, url: str, ttl: float) -> dict:
         if not self._sec_ua or "@" not in self._sec_ua:
             raise ConfigError(
-                "SEC_USER_AGENT is not set. SEC requires a contact in the User-Agent, "
-                'e.g. SEC_USER_AGENT="Your Name you@example.com".'
+                "no SEC contact is configured. SEC requires a name and email in the User-Agent. "
+                "Plugin users: run `claude plugin configure open-finance` and set sec_user_agent. "
+                'Otherwise set SEC_USER_AGENT or OPEN_FINANCE_SEC_USER_AGENT="Your Name you@example.com".'
             )
         cached = self._read_cache(url, ttl)
         if cached is not None:

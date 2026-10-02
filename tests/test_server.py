@@ -113,7 +113,13 @@ async def test_missing_user_agent_is_a_readable_error(tmp_path):
         mock_upstream(router)
         async with Client(build_server(Fetcher(cache=tmp_path, sec_user_agent=""))) as client:
             r = await client.call_tool("lookup_company", {"query": "AAPL"})
-    assert r.is_error and "SEC_USER_AGENT" in r.content[0].text
+    assert r.is_error and "claude plugin configure open-finance" in r.content[0].text
+
+
+def test_contact_falls_back_to_open_finance_env(monkeypatch):
+    monkeypatch.setenv("SEC_USER_AGENT", "")  # what the plugin passes when its option is unset
+    monkeypatch.setenv("OPEN_FINANCE_SEC_USER_AGENT", UA)
+    assert Fetcher()._sec_ua == UA
 
 
 async def test_filings_filter_by_form(call):

@@ -60,8 +60,12 @@ send a User-Agent with a contact, so you provide your name and email once.
 ```bash
 claude plugin marketplace add nathanaelhub/open-finance-mcp
 claude plugin install open-finance@open-finance
-# prompts for, or set with `claude plugin configure open-finance`: your SEC contact
+claude plugin configure open-finance   # set sec_user_agent: "Your Name you@example.com"
 ```
+
+If the contact is missing, the server still starts and its tools answer with
+an error saying how to set it, rather than silently not loading. It can also
+come from the `OPEN_FINANCE_SEC_USER_AGENT` environment variable.
 
 It works alongside `financial-analysis@claude-for-financial-services`: the
 `/comps` and `/dcf` skills find an MCP data source and use it.
@@ -131,7 +135,7 @@ filer broke the simple version:
 
 ```bash
 uv sync
-uv run pytest            # 39 tests, offline: real filings trimmed into tests/fixtures
+uv run pytest            # 41 tests, offline: real filings trimmed into tests/fixtures
 SEC_USER_AGENT="Name you@example.com" uv run python scripts/make_fixtures.py   # refresh fixtures
 ```
 

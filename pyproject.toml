@@ -1,6 +1,6 @@
 [project]
 name = "open-finance-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "MCP server for free, citable financial data: SEC EDGAR XBRL financials, filings, FRED rates, and market data"
 readme = "README.md"
 requires-python = ">=3.11"
