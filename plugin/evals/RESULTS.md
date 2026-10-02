@@ -2,77 +2,95 @@
 
 Run 2026-10-02 with `claude plugin eval` (Claude Code 2.1.287), model
 `claude-sonnet-5`, Haiku judges (3 votes per LLM grader), 3 runs per arm,
-real MCP server against live SEC/FRED/Yahoo data. **With** = this plugin
-loaded; **without** = the same prompt with no plugin. Both arms have
-WebSearch and WebFetch, which is what Claude falls back to without a data
-connector. Score = weighted share of graders passed, averaged over runs.
+real MCP server against live SEC/FRED/Yahoo data, transcripts kept.
+**With** = this plugin loaded; **without** = the same prompt with no plugin.
+Both arms are granted WebSearch and WebFetch. "Web" counts the baseline runs
+that actually used them (checked in each transcript).
 
-| Case | With | Without | Δ |
-|---|---:|---:|---:|
-| `bank-multiples` | 1.00 | 0.33 | +0.67 |
-| `consumer-comps` | 1.00 | 0.33 | +0.67 |
-| `dcf-inputs` | 1.00 | 0.92 | +0.08 |
-| `debt-build` | 1.00 | 1.00 | +0.00 |
-| `distorted-pe` | 1.00 | 0.78 | +0.22 |
-| `ifrs-filer` | 1.00 | 1.00 | +0.00 |
-| `new-registrant` | 0.78 | 0.44 | +0.33 |
-| `retailer-fiscal-year` | 0.89 | 1.00 | −0.11 |
-| **Mean** | **0.96** | **0.73** | **+0.23** |
+| Case | With | Without | Δ | Web | $/run with | $/run without |
+|---|---:|---:|---:|---:|---:|---:|
+| `ko-latest-quarter` | 1.00 | 0.07 | +0.93 | 0/3 | $0.13 | $0.04 |
+| `ifrs-filer` | 1.00 | 0.33 | +0.67 † | 3/3 | $0.16 | $0.50 |
+| `new-registrant` | 0.78 | 0.44 | +0.33 † | 3/3 | $0.11 | $0.20 |
+| `distorted-pe` | 1.00 | 0.78 | +0.22 | 3/3 | $0.08 | $0.18 |
+| `consumer-comps` | 1.00 | 0.83 | +0.17 | 3/3 | $0.18 | $2.96 |
+| `nvda-earnings-note` | 1.00 | 0.93 | +0.07 | 3/3 | $0.13 | $0.19 |
+| `bank-multiples` | 1.00 | 1.00 | 0.00 | 3/3 | $0.22 | $0.41 |
+| `dcf-inputs` | 1.00 | 1.00 | 0.00 | 3/3 | $0.12 | $0.48 |
+| `debt-build` | 1.00 | 1.00 | 0.00 | 3/3 | $0.10 | $0.17 |
+| `retailer-fiscal-year` | 1.00 | 1.00 | 0.00 | 3/3 | $0.09 | $0.11 |
+| **Mean** | **0.98** | **0.74** | **+0.24** | 27/30 | **$0.13** | **$0.52** |
 
-Total cost of the run: about $10 (48 + 6 agent runs, plus judges).
+† Judge noise, not plugin advantage: see below.
 
-## Reading it
+Total cost of the run: about $20, most of it the baseline's web research.
 
-- **The gains come from judgment, not lookup.** On single historical facts a
-  web search can find (Apple's FY2024 debt, Home Depot's fiscal year, Toyota
-  being an IFRS filer), the baseline does as well. Without the plugin, the
-  bank answer never gave a bank-appropriate multiple with a number (0 of 3
-  runs) and presented an EV/EBITDA for JPMorgan in 1 of 3; the beverage comps
-  never flagged a data problem specific to these companies (0 of 3) and gave
-  Monster an EV with no word on its debt in 1 of 3. With the plugin, those
-  graders passed in every run, because the warnings come back with the data.
-- **Citations.** Without the plugin, none of the 6 comps and bank answers
-  cited an SEC filing; with it, all 6 did.
-- **Where it lost.** One `retailer-fiscal-year` run with the plugin failed the
-  year-end-date regex (that transcript was not kept; two re-runs with
-  transcripts both passed, so it may be a phrasing the regex misses). `new-registrant` is noisy in
-  both arms (see below).
+## What the evidence supports
+
+- **Fresh quarters.** Asked for Coca-Cola's Q2 2026 numbers, the baseline
+  never searched: it assumed the quarter was past its knowledge and declined
+  (0.07). With the plugin, every run read the earnings release, which is filed
+  weeks before the quarter reaches SEC's XBRL API, and answered with GAAP and
+  non-GAAP EPS correctly labeled (1.00).
+- **Cost.** With the plugin, a run costs $0.13 on average against $0.52
+  without; on peer comps it is $0.18 against $2.96, because the baseline
+  searches and fetches page after page to assemble the same table.
+- **Consistency.** With the plugin, no case averaged below 0.78. Without it,
+  scores within a case ranged from 0 to 1 on four of ten cases.
+- **Judgment, when the baseline searches: mostly a tie.** A web-searching
+  baseline matched the plugin on bank multiples, DCF inputs and the single
+  historical facts, and came close on comps and the NVIDIA note. The remaining
+  gaps (`distorted-pe`, `consumer-comps`) are one or two runs that missed a
+  caveat.
+
+## † Rows not to read as plugin wins
+
+- `ifrs-filer`: a failed baseline answer, read in full, identified Toyota as an
+  IFRS 20-F filer, gave yen figures with the March fiscal year, flagged its
+  derived EBITDA and linked the actual 20-F filings. Its real flaw (using
+  FY2023–FY2025 when the FY2026 20-F was already out) isn't in the rubric, so
+  the judge's FAIL doesn't follow its own criteria.
+- `new-registrant`: noisy in both arms across every run so far; the Haiku
+  judge has failed correct, fully cited answers on both sides.
+
+## Correction
+
+An earlier version of this page reported, from a run without kept
+transcripts, a baseline of 0.33 on bank multiples and on comps, and
+attributed the gap to judgment. In this run, with transcripts, the baseline
+used web search in 27 of 30 runs and scored 1.00 and 0.83 on those cases.
+The earlier gaps most likely came from baseline runs that never searched;
+without transcripts that can't be confirmed, so those numbers have been
+withdrawn rather than averaged in.
 
 ## How the suite was audited
 
-The first full run's failures were checked against transcripts before any
-number was trusted. That found grader problems, not answer problems, which
-were fixed before the run above:
+Failures were checked against transcripts before any number was used:
 
-- The Exxon grader failed accurate, well-cited answers in **both** arms because
-  it required explaining the holding-company change. It now checks FY2022
-  revenue against the filing ($413.68B total revenues or $398.68B sales) and
-  judges only whether sources are checkable.
-- Prompts graded on SEC citations now ask for them, so the baseline is not
-  penalized for an unstated requirement.
-- Two regexes missed valid phrasings ("10-Year U.S. Treasury",
+- The first run found three grader bugs: the Exxon grader failed accurate,
+  well-cited answers in both arms; prompts graded on SEC citations didn't ask
+  for them; two regexes missed valid phrasings ("10-Year U.S. Treasury",
   "February 1st, 2026").
-
-The transcripts also found a product gap: once XOM moved to the new holding
-company, the predecessor's history (CIK 34088) was unreachable by ticker. The
-tools now accept a CIK, and the error message points to it. `new-registrant`
-above is a separate 3-run re-run after a final judge-criteria clarification:
-a figure cited to a later 10-K as a comparative year counts as sourced. One
-correct, fully cited plugin-arm answer still drew a FAIL from the Haiku judge,
-so treat that row as noisy.
+- Transcripts also found two product gaps, both fixed: the server didn't start
+  when the SEC contact was unset (v0.1.1), and a predecessor company was
+  unreachable by ticker (tools now accept a CIK).
+- This run found the baseline-search issue above and the two noisy rows.
 
 ## Caveats
 
-3 runs per arm is a small sample, the data is live (the Coca-Cola lag will
-disappear once SEC's API catches up), and the LLM graders are Haiku. The
-numbers show where the plugin changes behavior; they are not a benchmark.
+3 runs per arm is a small sample. The data is live: the Coca-Cola case
+depends on SEC's API lagging, which ends when the API catches up (the case
+is pinned to Q2 2026, so the expected answer won't change). The LLM graders
+are Haiku. Read this as where the plugin changes behavior and cost, not as a
+benchmark.
 
 ## Re-running
 
 ```bash
-SEC_USER_AGENT="Name you@example.com" uv run python scripts/run_evals.py --runs 3
+SEC_USER_AGENT="Name you@example.com" uv run python scripts/run_evals.py --runs 3 --keep-temp
 ```
 
 `scripts/run_evals.py` points a temp copy of the plugin at this checkout's
 server, because eval runs don't pass plugin userConfig or the shell
-environment to a plugin's MCP server.
+environment to a plugin's MCP server. Keep transcripts (`--keep-temp`):
+scores without them can't be audited.

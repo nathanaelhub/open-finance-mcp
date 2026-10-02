@@ -53,19 +53,20 @@ The notes that came back with those rows are the point of the design:
 
 ## Does it help? (evals)
 
-Eight `claude plugin eval` cases, each run with and without the plugin (both
-arms have web search), on live data:
+Ten `claude plugin eval` cases, each run with and without the plugin (both
+arms can use web search), on live data, transcripts audited:
 
 | | With plugin | Without |
 |---|---:|---:|
-| Mean score (8 cases, 3 runs each) | **0.96** | 0.73 |
-| Bank valuation: rejects EV/EBITDA, uses P/E or P/B | 1.00 | 0.33 |
-| Peer comps: SEC-cited, data problems flagged | 1.00 | 0.33 |
+| Mean score (10 cases, 3 runs each) | **0.98** | 0.74 |
+| Latest quarter (Coca-Cola Q2 2026) | 1.00 | 0.07 |
+| Cost per run (mean / peer comps) | **$0.13 / $0.18** | $0.52 / $2.96 |
 
-The gains come from judgment, not lookup: on single historical facts a web
-search can find, the baseline does as well. The suite was audited against
-transcripts before the numbers were trusted, which turned up three grader
-bugs and one product gap. Details, per-case results and caveats are in
+The clearest wins are fresh data, cost and consistency. When the baseline
+does search the web, it mostly matches the plugin on judgment questions
+(bank multiples, DCF inputs), and an earlier, larger claimed gap there was
+withdrawn after transcripts showed it came from runs that never searched.
+Per-case results, the audit and the caveats are in
 [plugin/evals/RESULTS.md](plugin/evals/RESULTS.md).
 
 ## Install
