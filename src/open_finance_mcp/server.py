@@ -15,7 +15,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from . import market, xbrl
+from . import market, release, xbrl
 from .fetch import ConfigError, Fetcher, UpstreamError
 
 TICKERS_URL = "https://www.sec.gov/files/company_tickers_exchange.json"
@@ -28,6 +28,7 @@ TTL_FACTS = DAY
 TTL_SUBMISSIONS = 6 * 3600
 TTL_MARKET = 15 * 60
 TTL_FRED = 6 * 3600
+TTL_DOCUMENT = 30 * DAY  # filed EDGAR documents never change
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=True, idempotent_hint=True)
 
@@ -89,6 +90,9 @@ class Data:
     async def submissions(self, cik: int) -> dict:
         return await self.f.sec_json(SUBMISSIONS_URL.format(cik=cik), TTL_SUBMISSIONS)
 
+    async def document(self, url: str) -> str:
+        return await self.f.sec_text(url, TTL_DOCUMENT)
+
     async def chart(self, symbol: str, range_: str, interval: str) -> dict:
         url = market.YAHOO_CHART.format(symbol=symbol, range=range_, interval=interval)
         return market.parse_chart(await self.f.get_json(url, TTL_MARKET, market.BROWSER_UA))
@@ -113,7 +117,8 @@ def staleness_warning(sub: dict, cited_accessions: set[str]) -> str | None:
     if newest["accessionNumber"] in cited_accessions:
         return None
     return (f"EDGAR lists a {newest['form']} filed {newest['filingDate']} (period {newest['reportDate']}) "
-            f"that the XBRL company-facts API does not include yet; figures stop at the prior filing.")
+            f"that the XBRL company-facts API does not include yet; figures stop at the prior filing. "
+            f"get_earnings_release has the newest quarter's press release.")
 
 
 def enterprise_value(market_cap: float | None, column: dict, financial: bool) -> dict:
@@ -281,6 +286,56 @@ def build_server(fetcher: Fetcher | None = None) -> MCPServer:
                 if len(out) >= max(1, min(limit, 100)):
                     break
             return out
+        return await guarded(run())
+
+    @mcp.tool(annotations=READ_ONLY)
+    async def get_earnings_release(ticker: str, which: int = 0, exhibit: str | None = None,
+                                   offset: int = 0, max_chars: int = 20_000) -> dict:
+        """Text of an earnings press release (the exhibit to an Item 2.02 8-K).
+
+        Filed on results day, weeks before the quarter reaches the XBRL data
+        behind get_financials. `which`: 0 = latest release, 1 = the one before,
+        and so on. `exhibit` picks another EX-99 document (e.g. "EX-99.2" for
+        CFO commentary); default is the first. Long releases are paged: pass
+        `next_offset` back as `offset`. Figures are unaudited and often non-GAAP.
+        Item 2.02 also covers other results announcements (Tesla files its
+        delivery numbers under it), so check that the text is the release you want.
+        """
+        async def run():
+            co = await data.resolve(ticker)
+            cik = int(co["cik"])
+            filings = release.earnings_8ks(await data.submissions(cik))
+            if not filings:
+                raise ToolError(f"No Item 2.02 (earnings) 8-K found for {co['name']} in recent filings.")
+            if not 0 <= which < len(filings):
+                raise ToolError(f"which must be 0-{len(filings) - 1} ({len(filings)} earnings 8-Ks found)")
+            f = filings[which]
+            index_url = xbrl.filing_url(cik, f["accessionNumber"])
+            exhibits = release.release_exhibits(release.filing_documents(await data.document(index_url)))
+            if not exhibits:
+                raise ToolError(f"The {f['filingDate']} 8-K has no EX-99 exhibit; see {index_url}")
+            if exhibit:
+                chosen = next((e for e in exhibits if e["type"].upper() == exhibit.strip().upper()), None)
+                if chosen is None:
+                    raise ToolError(f"No {exhibit} in this filing; available: "
+                                    f"{', '.join(e['type'] for e in exhibits)}")
+            else:
+                chosen = exhibits[0]
+            if not chosen["url"].lower().endswith((".htm", ".html", ".txt")):
+                raise ToolError(f"{chosen['type']} is not HTML or text ({chosen['url']}); open it directly.")
+            text = release.html_to_text(await data.document(chosen["url"]))
+            chunk, next_offset = release.page(text, max(0, offset), max(2_000, min(max_chars, 60_000)))
+            return {
+                "ticker": co["ticker"], "name": co["name"],
+                "filed": f["filingDate"], "event_date": f["reportDate"] or None,
+                "accession": f["accessionNumber"], "index_url": index_url,
+                "exhibit": chosen, "other_exhibits": [e for e in exhibits if e is not chosen],
+                "total_chars": len(text), "offset": max(0, offset), "next_offset": next_offset,
+                "text": chunk,
+                "note": "Press-release figures are unaudited and may be non-GAAP; the 10-Q/10-K "
+                        "is authoritative. Item 2.02 filings also include pre-announcements and "
+                        "operating updates: confirm this is the quarter's results. Cite the exhibit URL.",
+            }
         return await guarded(run())
 
     @mcp.tool(annotations=READ_ONLY)

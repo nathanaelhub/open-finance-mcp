@@ -72,16 +72,17 @@ class Fetcher:
         except OSError:
             pass  # the cache is an optimization; never fail a request over it
 
-    async def sec_json(self, url: str, ttl: float) -> dict:
+    def _require_sec_contact(self) -> None:
+        # Checked before the cache, so a misconfiguration surfaces immediately.
         if not self._sec_ua or "@" not in self._sec_ua:
             raise ConfigError(
                 "no SEC contact is configured. SEC requires a name and email in the User-Agent. "
                 "Plugin users: run `claude plugin configure open-finance` and set sec_user_agent. "
                 'Otherwise set SEC_USER_AGENT or OPEN_FINANCE_SEC_USER_AGENT="Your Name you@example.com".'
             )
-        cached = self._read_cache(url, ttl)
-        if cached is not None:
-            return cached
+
+    async def _sec_get(self, url: str) -> httpx.Response:
+        self._require_sec_contact()
         async with self._sec_lock:
             wait = SEC_MIN_INTERVAL - (time.monotonic() - self._sec_last)
             if wait > 0:
@@ -95,9 +96,27 @@ class Fetcher:
             raise UpstreamError(f"SEC returned 404 for {url}")
         if r.status_code != 200:
             raise UpstreamError(f"SEC returned HTTP {r.status_code} for {url}")
-        payload = r.json()
+        return r
+
+    async def sec_json(self, url: str, ttl: float) -> dict:
+        self._require_sec_contact()
+        cached = self._read_cache(url, ttl)
+        if cached is not None:
+            return cached
+        payload = (await self._sec_get(url)).json()
         self._write_cache(url, payload)
         return payload
+
+    async def sec_text(self, url: str, ttl: float) -> str:
+        """An EDGAR document (filing index page, exhibit HTML) as text."""
+        self._require_sec_contact()
+        cached = self._read_cache(url, ttl)
+        if isinstance(cached, str):
+            return cached
+        r = await self._sec_get(url)
+        text = r.content.decode(r.encoding or "utf-8", errors="replace")
+        self._write_cache(url, text)
+        return text
 
     async def get_json(self, url: str, ttl: float, headers: dict | None = None) -> dict:
         cached = self._read_cache(url, ttl)

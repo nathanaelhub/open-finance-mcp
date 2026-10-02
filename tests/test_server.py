@@ -51,6 +51,11 @@ def mock_upstream(router: respx.MockRouter) -> None:
     router.get(url__regex=r".*/chart/AAPL\?.*").respond(json=load("chart_AAPL.json"))
     router.get(url__regex=r".*/chart/%5EGSPC\?.*|.*/chart/\^GSPC\?.*").respond(json=load("chart_GSPC.json"))
     router.get(url__regex=r"https://fred\.stlouisfed\.org/.*").respond(text=load("fred_DGS10.csv"))
+    # Apple's earnings 8-K: its index page, and any document in it (the EX-99.1).
+    router.get(url__regex=r"https://www\.sec\.gov/Archives/edgar/data/320193/.*-index\.htm").respond(
+        text=load("release_AAPL_index.htm"))
+    router.get(url__regex=r"https://www\.sec\.gov/Archives/edgar/data/320193/\d+/[^/]+\.htm").respond(
+        text=load("release_AAPL_ex991.htm"))
 
 
 @pytest.fixture
@@ -70,7 +75,8 @@ async def test_tools_are_listed_read_only(tmp_path):
     async with Client(build_server(Fetcher(cache=tmp_path, sec_user_agent=UA))) as client:
         tools = (await client.list_tools()).tools
     assert {t.name for t in tools} == {"lookup_company", "get_financials", "get_filings",
-                                       "get_market_data", "get_treasury_yield", "get_comps"}
+                                       "get_market_data", "get_treasury_yield", "get_comps",
+                                       "get_earnings_release"}
     assert all(t.annotations.read_only_hint for t in tools)
 
 
@@ -95,7 +101,8 @@ async def test_bank_is_flagged(call):
 
 async def test_lagging_xbrl_api_is_flagged(call):
     err, out = await call("get_financials", {"ticker": "KO", "years": 1})
-    assert not err and any("does not include yet" in w for w in out["warnings"])
+    assert not err and any("does not include yet" in w and "get_earnings_release" in w
+                           for w in out["warnings"])
 
 
 async def test_new_registrant_explains_itself(call):
@@ -195,3 +202,31 @@ async def test_cik_resolves_registrants_without_a_ticker(call):
 async def test_new_registrant_error_points_to_predecessor_cik(call):
     err, msg = await call("get_financials", {"ticker": "XOM"})
     assert err and "CIK0000034088" in msg
+
+
+async def test_earnings_release_is_the_latest_item_2_02_exhibit(call):
+    from open_finance_mcp import release
+    latest = release.earnings_8ks(load("submissions_AAPL.json"))[0]
+    err, out = await call("get_earnings_release", {"ticker": "AAPL"})
+    assert not err
+    assert (out["filed"], out["accession"]) == (latest["filingDate"], latest["accessionNumber"])
+    assert out["exhibit"]["type"] == "EX-99.1" and out["text"].startswith("Exhibit 99.1")
+    assert "unaudited" in out["note"]
+
+
+async def test_earnings_release_pages_through_the_whole_text(call):
+    first = (await call("get_earnings_release", {"ticker": "AAPL", "max_chars": 3000}))[1]
+    assert first["next_offset"] and len(first["text"]) <= 3000
+    chunks, offset = [first["text"]], first["next_offset"]
+    while offset is not None:
+        out = (await call("get_earnings_release", {"ticker": "AAPL", "max_chars": 3000, "offset": offset}))[1]
+        chunks.append(out["text"])
+        offset = out["next_offset"]
+    assert len("".join(chunks)) == first["total_chars"]
+
+
+async def test_earnings_release_errors_are_actionable(call):
+    err, msg = await call("get_earnings_release", {"ticker": "AAPL", "exhibit": "EX-99.9"})
+    assert err and "available: EX-99.1" in msg
+    err, msg = await call("get_earnings_release", {"ticker": "AAPL", "which": 99})
+    assert err and "which must be" in msg

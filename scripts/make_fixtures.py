@@ -68,6 +68,15 @@ def main():
         recent = {k: [v[i] for i in idx] for k, v in r.items()}
         keep = {k: sub.get(k) for k in ("cik", "name", "tickers", "exchanges", "sic", "sicDescription", "fiscalYearEnd")}
         (OUT / f"submissions_{t}.json").write_text(json.dumps({**keep, "filings": {"recent": recent}}))
+    # Apple's latest earnings 8-K: the filing index page and its EX-99.1.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+    from open_finance_mcp import release
+    sub = json.loads((OUT / "submissions_AAPL.json").read_text())
+    accn = release.earnings_8ks(sub)[0]["accessionNumber"]
+    index = get(xbrl.filing_url(320193, accn)).text
+    (OUT / "release_AAPL_index.htm").write_text(index)
+    ex = release.release_exhibits(release.filing_documents(index))[0]
+    (OUT / "release_AAPL_ex991.htm").write_text(get(ex["url"]).text)
     for sym, name in (("AAPL", "AAPL"), ("^GSPC", "GSPC")):
         r = get(f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=6y&interval=1mo",
                 {"User-Agent": "Mozilla/5.0"})

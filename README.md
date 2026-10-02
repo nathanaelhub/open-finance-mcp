@@ -24,6 +24,7 @@ skills' citation requirement instead of treating sources as an afterthought.
 | `lookup_company` | Ticker, name, CIK and exchange for a ticker or name search |
 | `get_financials` | Annual + LTM income statement, cash flow and balance sheet; derived EBITDA, FCF, total debt, net debt; per-value citations |
 | `get_filings` | Recent 10-K / 10-Q / 8-K (etc.) with document and index URLs |
+| `get_earnings_release` | Text of the latest (or an earlier) earnings press release from its Item 2.02 8-K, tables kept as rows, paged |
 | `get_market_data` | Price, cover-page shares outstanding, market cap, 5-year monthly beta vs the S&P 500 |
 | `get_treasury_yield` | Latest constant-maturity Treasury yield (3M–30Y) from FRED |
 | `get_comps` | Peer table: market cap, EV, LTM revenue/EBITDA/net income, EV/Revenue, EV/EBITDA, P/E, with median and mean |
@@ -139,6 +140,26 @@ filer broke the simple version:
   with no history (ExxonMobil's new holding company, CIK 2115436) is explained
   rather than returned as empty tables.
 
+## Earnings releases: the newest quarter
+
+SEC's XBRL API can trail EDGAR by weeks (Coca-Cola's July 10-Q, above). The
+press release is furnished on results day as an exhibit to an 8-K tagged
+Item 2.02, so `get_earnings_release` finds the latest such 8-K, picks the
+EX-99 exhibit from the filing's index page (file names vary:
+`a2026q2earningsreleaseex-9.htm`, `q2fy27pr.htm`, …) and converts it to text.
+Financial tables come through as rows, with the `$`, `(` and `%` cells that
+filings use for alignment joined back to their numbers:
+
+```
+EMEA | $3,240 | $3,176 | 2 | $1,309 | $1,325 | (1)
+Consolidated | $13,380 | $12,535 | 7 | $4,672 | $4,280 | 9
+```
+
+Tested across Apple, Microsoft, NVIDIA, Alphabet, JPMorgan, Caterpillar,
+PepsiCo, Coca-Cola, Walmart and Tesla. Item 2.02 also covers non-earnings
+results announcements (Tesla files delivery numbers under it), so the tool
+tells the model to confirm what the document is rather than guessing.
+
 ## Limitations
 
 - US-GAAP SEC filers only. IFRS filers (20-F/40-F) are not supported.
@@ -152,7 +173,7 @@ filer broke the simple version:
 
 ```bash
 uv sync
-uv run pytest            # 43 tests, offline: real filings trimmed into tests/fixtures
+uv run pytest            # 57 tests, offline: real filings trimmed into tests/fixtures
 SEC_USER_AGENT="Name you@example.com" uv run python scripts/make_fixtures.py   # refresh fixtures
 ```
 
