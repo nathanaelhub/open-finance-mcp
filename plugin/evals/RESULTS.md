@@ -36,7 +36,8 @@ Total cost of the run: about $20, most of it the baseline's web research.
   without; on peer comps it is $0.18 against $2.96, because the baseline
   searches and fetches page after page to assemble the same table.
 - **Consistency.** With the plugin, no case averaged below 0.78. Without it,
-  scores within a case ranged from 0 to 1 on four of ten cases.
+  runs of the same case ranged from 0 to 1 on two cases and from 0.33 to 1
+  on a third.
 - **Judgment, when the baseline searches: mostly a tie.** A web-searching
   baseline matched the plugin on bank multiples, DCF inputs and the single
   historical facts, and came close on comps and the NVIDIA note. The remaining
