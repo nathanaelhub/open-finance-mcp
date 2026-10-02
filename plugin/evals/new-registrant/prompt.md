@@ -13,6 +13,7 @@ allowed_tools:
   - mcp__plugin_open-finance_open-finance__get_market_data
   - mcp__plugin_open-finance_open-finance__get_treasury_yield
   - mcp__plugin_open-finance_open-finance__get_comps
+  - mcp__plugin_open-finance_open-finance__get_earnings_release
   - WebSearch
   - WebFetch
   - Skill

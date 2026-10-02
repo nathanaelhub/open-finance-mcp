@@ -1,6 +1,6 @@
 ---
-description: "Alphabet's trailing P/E is depressed by large investment gains; a fair answer says so."
-tags: [comps, warnings]
+description: "Coca-Cola's Q2 2026 is in its earnings release and 10-Q, but not yet in the XBRL API behind get_financials. Truth: net revenues $13,380M, GAAP diluted EPS $1.03 (comparable non-GAAP $0.97)."
+tags: [earnings, freshness]
 plugins: ["../.."]
 runs: 2
 max_turns: 15
@@ -19,4 +19,4 @@ allowed_tools:
   - Skill
 ---
 
-Is Alphabet (GOOGL) cheaper than Microsoft (MSFT) on P/E right now? Answer with the numbers and say whether P/E is a fair comparison here.
+What were Coca-Cola's (KO) net revenues and diluted EPS for the second quarter of 2026? Cite the source document.

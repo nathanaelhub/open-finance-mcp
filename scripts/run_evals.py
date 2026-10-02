@@ -25,7 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SERVER = "mcp__plugin_open-finance_open-finance__"
 TOOLS = ["lookup_company", "get_financials", "get_filings", "get_market_data",
-         "get_treasury_yield", "get_comps"]
+         "get_treasury_yield", "get_comps", "get_earnings_release"]
 
 
 def main() -> int:
