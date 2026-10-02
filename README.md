@@ -50,6 +50,23 @@ The notes that came back with those rows are the point of the design:
   assuming zero debt. A separately labeled `enterprise_value_if_debt_free`
   (37B) is offered, to use once the balance sheet confirms it.
 
+## Does it help? (evals)
+
+Eight `claude plugin eval` cases, each run with and without the plugin (both
+arms have web search), on live data:
+
+| | With plugin | Without |
+|---|---:|---:|
+| Mean score (8 cases, 3 runs each) | **0.96** | 0.73 |
+| Bank valuation: rejects EV/EBITDA, uses P/E or P/B | 1.00 | 0.33 |
+| Peer comps: SEC-cited, data problems flagged | 1.00 | 0.33 |
+
+The gains come from judgment, not lookup: on single historical facts a web
+search can find, the baseline does as well. The suite was audited against
+transcripts before the numbers were trusted, which turned up three grader
+bugs and one product gap. Details, per-case results and caveats are in
+[plugin/evals/RESULTS.md](plugin/evals/RESULTS.md).
+
 ## Install
 
 Requires [uv](https://docs.astral.sh/uv/). SEC requires automated clients to
@@ -135,7 +152,7 @@ filer broke the simple version:
 
 ```bash
 uv sync
-uv run pytest            # 41 tests, offline: real filings trimmed into tests/fixtures
+uv run pytest            # 43 tests, offline: real filings trimmed into tests/fixtures
 SEC_USER_AGENT="Name you@example.com" uv run python scripts/make_fixtures.py   # refresh fixtures
 ```
 
