@@ -66,7 +66,7 @@ def main():
         r = sub["filings"]["recent"]
         idx = [i for i, f in enumerate(r["form"]) if i < 20 or f in ("10-K", "10-Q", "10-K/A", "10-Q/A", "8-K")]
         recent = {k: [v[i] for i in idx] for k, v in r.items()}
-        keep = {k: sub.get(k) for k in ("cik", "name", "sic", "sicDescription", "fiscalYearEnd")}
+        keep = {k: sub.get(k) for k in ("cik", "name", "tickers", "exchanges", "sic", "sicDescription", "fiscalYearEnd")}
         (OUT / f"submissions_{t}.json").write_text(json.dumps({**keep, "filings": {"recent": recent}}))
     for sym, name in (("AAPL", "AAPL"), ("^GSPC", "GSPC")):
         r = get(f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=6y&interval=1mo",

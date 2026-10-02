@@ -183,3 +183,15 @@ def test_ev_is_null_but_explained_when_no_debt_is_reported():
 def test_ev_is_not_computed_for_financials():
     out = enterprise_value(100.0, _column(debt=30, net_debt=20, cash=10), True)
     assert out["enterprise_value"] is None and out["enterprise_value_if_debt_free"] is None
+
+
+async def test_cik_resolves_registrants_without_a_ticker(call):
+    err, out = await call("get_financials", {"ticker": "CIK0000320193", "years": 1})
+    assert not err and out["cik"] == 320193 and out["ticker"] == "AAPL"
+    err, out = await call("get_financials", {"ticker": "320193", "years": 1})
+    assert not err and out["cik"] == 320193
+
+
+async def test_new_registrant_error_points_to_predecessor_cik(call):
+    err, msg = await call("get_financials", {"ticker": "XOM"})
+    assert err and "CIK0000034088" in msg

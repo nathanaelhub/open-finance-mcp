@@ -7,6 +7,7 @@ work the way the financial-services ``/comps`` and ``/dcf`` skills require.
 
 from __future__ import annotations
 
+import re
 import statistics
 from datetime import date
 
@@ -60,11 +61,27 @@ class Data:
         return [dict(zip(fields, row)) for row in payload["data"]]
 
     async def resolve(self, ticker: str) -> dict:
-        want = ticker.strip().upper().replace(".", "-")
+        """A ticker, or a CIK ("CIK0000034088" or "34088") for registrants without one.
+
+        SEC's ticker list only covers current tickers, so a predecessor company
+        (Exxon Mobil Corp after its ticker moved to a new holding company) is
+        reachable only by CIK.
+        """
+        raw = ticker.strip().upper()
+        m = re.fullmatch(r"(?:CIK)?0*(\d{1,10})", raw)
+        if m:
+            cik = int(m.group(1))
+            sub = await self.submissions(cik)
+            tickers = sub.get("tickers") or []
+            exchanges = sub.get("exchanges") or []
+            return {"cik": cik, "name": sub.get("name"), "ticker": tickers[0] if tickers else f"CIK{cik:010d}",
+                    "exchange": exchanges[0] if exchanges else None}
+        want = raw.replace(".", "-")
         for c in await self.companies():
             if str(c["ticker"]).upper() == want:
                 return c
-        raise ToolError(f"Unknown ticker {ticker!r}. Use lookup_company to search by name.")
+        raise ToolError(f"Unknown ticker {ticker!r}. Use lookup_company to search by name, "
+                        "or pass a CIK such as 'CIK0000320193'.")
 
     async def facts(self, cik: int) -> dict:
         return await self.f.sec_json(FACTS_URL.format(cik=cik), TTL_FACTS)
@@ -153,7 +170,8 @@ def build_server(fetcher: Fetcher | None = None) -> MCPServer:
         except xbrl.NoUsGaapFacts as e:
             raise ToolError(
                 f"{co['name']} (CIK {cik}) has no usable US-GAAP annual financials: {e}. "
-                "Do not substitute figures from memory; tell the user this source cannot cover it."
+                "If you know a predecessor registrant's CIK, call again with it as the ticker "
+                "(e.g. 'CIK0000034088'); otherwise do not substitute figures from memory."
             ) from e
         sub = await data.submissions(cik)
         warnings = []
@@ -169,6 +187,8 @@ def build_server(fetcher: Fetcher | None = None) -> MCPServer:
 
     async def _market(ticker: str) -> dict:
         co = await data.resolve(ticker)
+        if co["ticker"].startswith("CIK"):
+            raise ToolError(f"{co['name']} has no current ticker, so there is no market price.")
         symbol = co["ticker"].replace(".", "-")
         stock = await data.chart(symbol, "6y", "1mo")
         meta = stock["meta"]
@@ -230,6 +250,9 @@ def build_server(fetcher: Fetcher | None = None) -> MCPServer:
     @mcp.tool(annotations=READ_ONLY)
     async def get_financials(ticker: str, years: int = 5, include_ltm: bool = True) -> dict:
         """Standardized annual (and LTM) financials from SEC XBRL filings.
+
+        `ticker` may also be a CIK ("CIK0000034088"), for registrants with no
+        current ticker such as a predecessor company.
 
         Income statement, cash flow and balance-sheet items plus derived EBITDA,
         free cash flow, total debt and net debt. Every value carries its XBRL
