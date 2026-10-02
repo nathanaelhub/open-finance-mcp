@@ -25,13 +25,14 @@ Total cost of the run: about $10 (48 + 6 agent runs, plus judges).
 
 - **The gains come from judgment, not lookup.** On single historical facts a
   web search can find (Apple's FY2024 debt, Home Depot's fiscal year, Toyota
-  being an IFRS filer), the baseline does as well. Without the plugin, Claude
-  computed an EV/EBITDA for a bank instead of rejecting the multiple, and
-  built beverage comps without flagging Monster's missing debt data, Coca-Cola's
-  lagging quarter or KDP's non-operating items. With the plugin, those warnings
-  come back with the data and were surfaced in every run.
-- **Citations.** Without the plugin, comps and bank answers cited aggregator
-  pages, not SEC filings, in all 6 runs; with it, every run cited filings.
+  being an IFRS filer), the baseline does as well. Without the plugin, the
+  bank answer never gave a bank-appropriate multiple with a number (0 of 3
+  runs) and presented an EV/EBITDA for JPMorgan in 1 of 3; the beverage comps
+  never flagged a data problem specific to these companies (0 of 3) and gave
+  Monster an EV with no word on its debt in 1 of 3. With the plugin, those
+  graders passed in every run, because the warnings come back with the data.
+- **Citations.** Without the plugin, none of the 6 comps and bank answers
+  cited an SEC filing; with it, all 6 did.
 - **Where it lost.** One `retailer-fiscal-year` run with the plugin stated the
   right revenue but not the fiscal year-end date. `new-registrant` is noisy in
   both arms (see below).
