@@ -153,8 +153,7 @@ def build_server(fetcher: Fetcher | None = None) -> MCPServer:
         except xbrl.NoUsGaapFacts as e:
             raise ToolError(
                 f"{co['name']} (CIK {cik}) has no usable US-GAAP annual financials: {e}. "
-                "It may be a newly formed registrant (e.g. a new holding company whose history "
-                "sits under a predecessor CIK) or a foreign IFRS filer. Try lookup_company."
+                "Do not substitute figures from memory; tell the user this source cannot cover it."
             ) from e
         sub = await data.submissions(cik)
         warnings = []

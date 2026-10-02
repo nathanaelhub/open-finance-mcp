@@ -314,7 +314,16 @@ def standardize(companyfacts: dict, years: int = 5, include_ltm: bool = True) ->
     if not gaap:
         raise NoUsGaapFacts("filer has no us-gaap facts (IFRS/foreign filer or fund?)")
 
-    periods = annual_periods(gaap)[-years:]
+    try:
+        periods = annual_periods(gaap)[-years:]
+    except NoUsGaapFacts:
+        if companyfacts.get("facts", {}).get("ifrs-full"):
+            raise NoUsGaapFacts(
+                "files under IFRS (20-F/40-F, ifrs-full taxonomy), which this server does not "
+                "standardize; any us-gaap facts are legacy or partial") from None
+        raise NoUsGaapFacts(
+            "no 10-K history: possibly a newly formed registrant whose history sits under a "
+            "predecessor CIK") from None
     columns = []
     accessions: set[str] = set()
 

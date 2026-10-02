@@ -100,7 +100,7 @@ async def test_lagging_xbrl_api_is_flagged(call):
 
 async def test_new_registrant_explains_itself(call):
     err, msg = await call("get_financials", {"ticker": "XOM"})
-    assert err and "predecessor CIK" in msg
+    assert err and "predecessor CIK" in msg and "IFRS" not in msg
 
 
 async def test_unknown_ticker(call):

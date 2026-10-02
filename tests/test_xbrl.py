@@ -166,3 +166,10 @@ def test_multi_class_cover_page_is_summed():
     ]}}}
     s = xbrl.shares_outstanding(companyfacts({}, dei=dei))
     assert (s["value"], s["classes_summed"], s["accession"]) == (350, 2, "x")
+
+
+def test_ifrs_filer_is_named_as_such():
+    cf = companyfacts({"Revenues": [fact(1, "2010-04-01", "2011-03-31", "old", "2011-06-20", form="20-F")]})
+    cf["facts"]["ifrs-full"] = {"Revenue": {"units": {"JPY": []}}}
+    with pytest.raises(xbrl.NoUsGaapFacts, match="IFRS"):
+        xbrl.standardize(cf)
