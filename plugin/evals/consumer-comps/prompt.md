@@ -18,4 +18,4 @@ allowed_tools:
   - Skill
 ---
 
-Build a quick trading-comps table for Coca-Cola (KO), PepsiCo (PEP), Keurig Dr Pepper (KDP) and Monster Beverage (MNST): market cap, enterprise value, EV/EBITDA and P/E, plus the peer median. Cite the source for each company's figures and flag anything that makes a number unreliable.
+Build a quick trading-comps table for Coca-Cola (KO), PepsiCo (PEP), Keurig Dr Pepper (KDP) and Monster Beverage (MNST): market cap, enterprise value, EV/EBITDA and P/E, plus the peer median. Cite the SEC filing behind each company's figures and flag anything that makes a number unreliable.

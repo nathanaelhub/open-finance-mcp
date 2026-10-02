@@ -18,4 +18,4 @@ allowed_tools:
   - Skill
 ---
 
-I'm building a DCF for Apple (AAPL). Gather the inputs: the current risk-free rate, Apple's beta, net debt, diluted shares outstanding and latest-fiscal-year free cash flow. Give the value, date and source for each input.
+I'm building a DCF for Apple (AAPL). Gather the inputs: the current risk-free rate, Apple's beta, net debt, diluted shares outstanding and latest-fiscal-year free cash flow. Give the value, date and source for each input, citing the SEC filing for company figures.

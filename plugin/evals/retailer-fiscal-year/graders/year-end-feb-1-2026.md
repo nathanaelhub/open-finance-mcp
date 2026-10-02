@@ -2,5 +2,5 @@
 type: regex
 target: last_message
 flags: i
-pattern: '(february 1,? 2026|feb\.? 1,? 2026|2026-02-01|1 feb(ruary)? 2026)'
+pattern: '(feb(ruary)?\.? 1(st)?,? 2026|2026-02-01|0?2/0?1/2026|1 feb(ruary)? 2026)'
 ---

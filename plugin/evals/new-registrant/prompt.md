@@ -1,5 +1,5 @@
 ---
-description: "XOM now maps to a new holding company with no 10-K history; the model must not fabricate a cited history."
+description: "XOM now maps to a new holding company with no 10-K history; the history sits under the predecessor CIK 34088. Graded on accuracy (FY2022 total revenues $413.68B or sales $398.68B) and checkable sources."
 tags: [coverage]
 plugins: ["../.."]
 runs: 2

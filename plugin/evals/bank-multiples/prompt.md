@@ -18,4 +18,4 @@ allowed_tools:
   - Skill
 ---
 
-What is JPMorgan Chase's (JPM) EV/EBITDA, and how does its valuation compare on the multiple you'd actually use for it? Cite your sources.
+What is JPMorgan Chase's (JPM) EV/EBITDA, and how does its valuation compare on the multiple you'd actually use for it? Cite the SEC filings behind your figures.
