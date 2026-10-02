@@ -33,8 +33,9 @@ Total cost of the run: about $10 (48 + 6 agent runs, plus judges).
   graders passed in every run, because the warnings come back with the data.
 - **Citations.** Without the plugin, none of the 6 comps and bank answers
   cited an SEC filing; with it, all 6 did.
-- **Where it lost.** One `retailer-fiscal-year` run with the plugin stated the
-  right revenue but not the fiscal year-end date. `new-registrant` is noisy in
+- **Where it lost.** One `retailer-fiscal-year` run with the plugin failed the
+  year-end-date regex (that transcript was not kept; two re-runs with
+  transcripts both passed, so it may be a phrasing the regex misses). `new-registrant` is noisy in
   both arms (see below).
 
 ## How the suite was audited
