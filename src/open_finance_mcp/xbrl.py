@@ -14,6 +14,11 @@ Two facts about the data drive the design:
 * A 10-K carries prior years as comparatives, and later filings can restate
   them. For each period we take the value from the most recently filed
   report, and cite that filing.
+
+Foreign private issuers that report under IFRS (Form 20-F/40-F) are read
+from the ``ifrs-full`` taxonomy with its own concept map, in the currency
+they report in. A filer with both taxonomies (Sony switched from US GAAP to
+IFRS) is read from whichever has the most recent fiscal year.
 """
 
 from __future__ import annotations
@@ -83,15 +88,47 @@ INSTANT_CONCEPTS: dict[str, list[str]] = {
     "short_term_borrowings": ["ShortTermBorrowings"],
 }
 
-# EPS is USD/share, share counts are "shares"; everything else is USD.
-UNITS = {"diluted_shares": "shares", "diluted_eps": "USD/shares"}
+IFRS_DURATION_CONCEPTS: dict[str, list[str]] = {
+    "revenue": ["Revenue", "RevenueFromContractsWithCustomers"],
+    "gross_profit": ["GrossProfit"],
+    "operating_income": ["ProfitLossFromOperatingActivities"],
+    "pretax_income": ["ProfitLossBeforeTax"],
+    "net_income": ["ProfitLossAttributableToOwnersOfParent", "ProfitLoss"],
+    "interest_expense": ["InterestExpense", "FinanceCosts"],
+    # Impairment-inclusive D&A concepts are left out so EBITDA means the same
+    # thing across filers.
+    "d_and_a": ["DepreciationAndAmortisationExpense", "AdjustmentsForDepreciationAndAmortisationExpense"],
+    "operating_cash_flow": ["CashFlowsFromUsedInOperatingActivities"],
+    "capex": [
+        "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+        "PurchaseOfPropertyPlantAndEquipment",
+        # Broader (includes intangibles); the concept name is reported with the value.
+        "PurchaseOfPropertyPlantAndEquipmentIntangibleAssetsOtherThanGoodwillInvestmentPropertyAndOtherNoncurrentAssets",
+    ],
+    "diluted_shares": ["AdjustedWeightedAverageShares"],
+    "diluted_eps": ["DilutedEarningsLossPerShare"],
+}
 
-ANNUAL_FORMS = {"10-K", "10-K/A", "10-KT"}
-QUARTERLY_FORMS = {"10-Q", "10-Q/A"}
+IFRS_INSTANT_CONCEPTS: dict[str, list[str]] = {
+    "cash": ["CashAndCashEquivalents"],
+    "short_term_investments": [],  # no standard IFRS concept
+    "total_assets": ["Assets"],
+    "total_equity": ["EquityAttributableToOwnersOfParent", "Equity"],
+    # IFRS ``Borrowings`` is current + non-current; the pieces are the fallback.
+    "borrowings": ["Borrowings"],
+    "borrowings_noncurrent": ["LongtermBorrowings", "NoncurrentPortionOfNoncurrentLoansReceived"],
+    "borrowings_current": [
+        "CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings",
+        "CurrentLoansReceivedAndCurrentPortionOfNoncurrentLoansReceived",
+    ],
+}
+
+ANNUAL_FORMS = {"10-K", "10-K/A", "10-KT", "20-F", "20-F/A", "40-F", "40-F/A"}
+QUARTERLY_FORMS = {"10-Q", "10-Q/A"}  # 6-K interim reports carry no XBRL financials
 
 
 class NoUsGaapFacts(ValueError):
-    """The filer has no usable us-gaap annual facts (new registrant, IFRS filer, fund...)."""
+    """The filer has no usable annual facts in either taxonomy (new registrant, fund...)."""
 
 
 @dataclass(frozen=True)
@@ -120,8 +157,8 @@ def filing_url(cik: int, accession: str) -> str:
     )
 
 
-def _facts(gaap: dict, concept: str, unit: str) -> list[Fact]:
-    rows = gaap.get(concept, {}).get("units", {}).get(unit, [])
+def _facts(ns: dict, concept: str, unit: str) -> list[Fact]:
+    rows = ns.get(concept, {}).get("units", {}).get(unit, [])
     return [
         Fact(concept, float(r["val"]), r.get("start"), r["end"], r.get("form", ""),
              r["accn"], r.get("filed", ""), r.get("fy"), r.get("fp"))
@@ -130,8 +167,30 @@ def _facts(gaap: dict, concept: str, unit: str) -> list[Fact]:
     ]
 
 
-def _unit_for(metric: str) -> str:
-    return UNITS.get(metric, "USD")
+@dataclass(frozen=True)
+class Taxonomy:
+    prefix: str
+    duration: dict[str, list[str]]
+    instant: dict[str, list[str]]
+
+
+US_GAAP = Taxonomy("us-gaap", DURATION_CONCEPTS, INSTANT_CONCEPTS)
+IFRS = Taxonomy("ifrs-full", IFRS_DURATION_CONCEPTS, IFRS_INSTANT_CONCEPTS)
+
+
+@dataclass(frozen=True)
+class Ctx:
+    """The taxonomy being read and the filer's reporting currency."""
+    tx: Taxonomy
+    facts: dict
+    currency: str
+
+    def unit(self, metric: str) -> str:
+        if metric == "diluted_shares":
+            return "shares"
+        if metric == "diluted_eps":
+            return f"{self.currency}/shares"
+        return self.currency
 
 
 def _is_annual(f: Fact) -> bool:
@@ -143,7 +202,7 @@ def _latest_filed(facts: list[Fact]) -> Fact:
     return max(facts, key=lambda f: (f.filed, f.accession))
 
 
-def annual_periods(gaap: dict) -> list[dict]:
+def annual_periods(ctx: Ctx) -> list[dict]:
     """Fiscal-year periods, oldest first, keyed off the revenue/net-income facts.
 
     The fiscal-year label comes from the *original* 10-K for that period (the
@@ -153,12 +212,12 @@ def annual_periods(gaap: dict) -> list[dict]:
     """
     periods: dict[tuple[str, str], list[Fact]] = {}
     for metric in ("revenue", "net_income"):
-        for concept in DURATION_CONCEPTS[metric]:
-            for f in _facts(gaap, concept, "USD"):
+        for concept in ctx.tx.duration[metric]:
+            for f in _facts(ctx.facts, concept, ctx.currency):
                 if _is_annual(f):
                     periods.setdefault((f.start, f.end), []).append(f)
     if not periods:
-        raise NoUsGaapFacts("no annual 10-K revenue or net-income facts")
+        raise NoUsGaapFacts("no annual revenue or net-income facts")
 
     out = []
     for (start, end), facts in periods.items():
@@ -179,28 +238,28 @@ def annual_periods(gaap: dict) -> list[dict]:
     return dedup
 
 
-def _pick(gaap: dict, metric: str, concepts: list[str], match) -> Fact | None:
+def _pick(ctx: Ctx, metric: str, concepts: list[str], match) -> Fact | None:
     """First concept (by priority) with a fact matching ``match``; latest filing wins."""
     for concept in concepts:
-        hits = [f for f in _facts(gaap, concept, _unit_for(metric)) if match(f)]
+        hits = [f for f in _facts(ctx.facts, concept, ctx.unit(metric)) if match(f)]
         if hits:
             return _latest_filed(hits)
     return None
 
 
-def _cell(f: Fact | None) -> dict | None:
+def _cell(ctx: Ctx, f: Fact | None) -> dict | None:
     if f is None:
         return None
-    return {"value": f.value, "concept": f"us-gaap:{f.concept}", "accession": f.accession}
+    return {"value": f.value, "concept": f"{ctx.tx.prefix}:{f.concept}", "accession": f.accession}
 
 
-def _duration_value(gaap, metric, start, end, forms):
-    return _pick(gaap, metric, DURATION_CONCEPTS[metric],
+def _duration_value(ctx, metric, start, end, forms):
+    return _pick(ctx, metric, ctx.tx.duration[metric],
                  lambda f: f.start == start and f.end == end and f.form in forms)
 
 
-def _instant_value(gaap, metric, end, forms):
-    return _pick(gaap, metric, INSTANT_CONCEPTS[metric],
+def _instant_value(ctx, metric, end, forms):
+    return _pick(ctx, metric, ctx.tx.instant[metric],
                  lambda f: f.start is None and f.end == end and f.form in forms)
 
 
@@ -244,7 +303,24 @@ def total_debt(inst: dict[str, dict | None]) -> tuple[float | None, str]:
     return (lt or 0.0) + (cur or 0.0), formula
 
 
-def _derive(row: dict[str, dict | None], inst: dict[str, dict | None]) -> dict[str, dict | None]:
+def ifrs_total_debt(inst: dict[str, dict | None]) -> tuple[float | None, str]:
+    """IFRS ``Borrowings`` (current + non-current), else its two parts.
+
+    Lease liabilities are excluded, matching the US-GAAP rule.
+    """
+    if inst.get("borrowings"):
+        return inst["borrowings"]["value"], "borrowings"
+    parts = [k for k in ("borrowings_noncurrent", "borrowings_current") if inst.get(k)]
+    if not parts:
+        return None, "no debt concepts reported"
+    formula = " + ".join(parts)
+    if "borrowings_noncurrent" not in parts:
+        formula += " (no non-current borrowings concept reported: likely incomplete)"
+    return _sum_cells([inst[k] for k in parts]), formula
+
+
+def _derive(row: dict[str, dict | None], inst: dict[str, dict | None],
+            tx: Taxonomy = US_GAAP) -> dict[str, dict | None]:
     def v(k, src=row):
         c = src.get(k)
         return None if c is None else c["value"]
@@ -260,7 +336,7 @@ def _derive(row: dict[str, dict | None], inst: dict[str, dict | None]) -> dict[s
         {"value": cfo - capex, "formula": "operating_cash_flow - capex"}
         if cfo is not None and capex is not None else None
     )
-    debt, formula = total_debt(inst)
+    debt, formula = (ifrs_total_debt if tx is IFRS else total_debt)(inst)
     out["total_debt"] = None if debt is None else {"value": debt, "formula": formula}
     cash = v("cash", inst)
     if debt is not None and cash is not None:
@@ -274,7 +350,7 @@ def _derive(row: dict[str, dict | None], inst: dict[str, dict | None]) -> dict[s
     return out
 
 
-def _latest_quarter_ytd(gaap: dict, fy_end: str) -> tuple[str, str] | None:
+def _latest_quarter_ytd(ctx: Ctx, fy_end: str) -> tuple[str, str] | None:
     """(start, end) of the newest 10-Q year-to-date period after ``fy_end``.
 
     A YTD period starts right after the fiscal year ends (within a week, for
@@ -282,18 +358,18 @@ def _latest_quarter_ytd(gaap: dict, fy_end: str) -> tuple[str, str] | None:
     """
     end_d = date.fromisoformat(fy_end)
     best = None
-    for concept in DURATION_CONCEPTS["revenue"] + DURATION_CONCEPTS["net_income"]:
-        for f in _facts(gaap, concept, "USD"):
+    for concept in ctx.tx.duration["revenue"] + ctx.tx.duration["net_income"]:
+        for f in _facts(ctx.facts, concept, ctx.currency):
             if f.form in QUARTERLY_FORMS and f.start and 0 < (date.fromisoformat(f.start) - end_d).days <= 7:
                 if best is None or f.end > best[1]:
                     best = (f.start, f.end)
     return best
 
 
-def _ltm_parts(gaap: dict, metric: str, concept: str, last_fy: dict,
+def _ltm_parts(ctx: Ctx, metric: str, concept: str, last_fy: dict,
                ytd: tuple[str, str]) -> tuple[Fact, Fact, Fact] | None:
     """(FY, current YTD, prior-year YTD) facts for one concept, or None."""
-    facts = _facts(gaap, concept, _unit_for(metric))
+    facts = _facts(ctx.facts, concept, ctx.unit(metric))
     length = (date.fromisoformat(ytd[1]) - date.fromisoformat(ytd[0])).days
 
     def one(pred):
@@ -307,35 +383,56 @@ def _ltm_parts(gaap: dict, metric: str, concept: str, last_fy: dict,
     return (fy, cur, prev) if fy and cur and prev else None
 
 
+def reporting_currency(ns: dict) -> str | None:
+    """The currency most annual revenue/net-income facts are reported in."""
+    counts: dict[str, int] = {}
+    for concept in ("Revenues", "Revenue", "NetIncomeLoss", "ProfitLoss",
+                    "RevenueFromContractWithCustomerExcludingAssessedTax"):
+        for unit, rows in ns.get(concept, {}).get("units", {}).items():
+            if "/" not in unit and unit != "shares":
+                counts[unit] = counts.get(unit, 0) + sum(1 for r in rows if r.get("form") in ANNUAL_FORMS)
+    return max(counts, key=counts.get) if counts and max(counts.values()) else None
+
+
+def _choose(companyfacts: dict) -> tuple[Ctx, list[dict]]:
+    """The taxonomy with the most recent fiscal year, and its periods."""
+    best: tuple[Ctx, list[dict]] | None = None
+    for tx in (US_GAAP, IFRS):
+        ns = companyfacts.get("facts", {}).get(tx.prefix)
+        currency = reporting_currency(ns) if ns else None
+        if not currency:
+            continue
+        ctx = Ctx(tx, ns, currency)
+        try:
+            periods = annual_periods(ctx)
+        except NoUsGaapFacts:
+            continue
+        if best is None or periods[-1]["end"] > best[1][-1]["end"]:
+            best = (ctx, periods)
+    if best is None:
+        raise NoUsGaapFacts(
+            "no 10-K or 20-F history: possibly a newly formed registrant whose history sits "
+            "under a predecessor CIK")
+    return best
+
+
 def standardize(companyfacts: dict, years: int = 5, include_ltm: bool = True) -> dict:
     """Standardized annual (+ optional LTM) financials with per-value citations."""
     cik = int(companyfacts["cik"])
-    gaap = companyfacts.get("facts", {}).get("us-gaap")
-    if not gaap:
-        raise NoUsGaapFacts("filer has no us-gaap facts (IFRS/foreign filer or fund?)")
-
-    try:
-        periods = annual_periods(gaap)[-years:]
-    except NoUsGaapFacts:
-        if companyfacts.get("facts", {}).get("ifrs-full"):
-            raise NoUsGaapFacts(
-                "files under IFRS (20-F/40-F, ifrs-full taxonomy), which this server does not "
-                "standardize; any us-gaap facts are legacy or partial") from None
-        raise NoUsGaapFacts(
-            "no 10-K history: possibly a newly formed registrant whose history sits under a "
-            "predecessor CIK") from None
+    ctx, all_periods = _choose(companyfacts)
+    periods = all_periods[-years:]
     columns = []
     accessions: set[str] = set()
 
     for p in periods:
-        row = {m: _cell(_duration_value(gaap, m, p["start"], p["end"], ANNUAL_FORMS))
-               for m in DURATION_CONCEPTS}
-        inst = {m: _cell(_instant_value(gaap, m, p["end"], ANNUAL_FORMS)) for m in INSTANT_CONCEPTS}
+        row = {m: _cell(ctx, _duration_value(ctx, m, p["start"], p["end"], ANNUAL_FORMS))
+               for m in ctx.tx.duration}
+        inst = {m: _cell(ctx, _instant_value(ctx, m, p["end"], ANNUAL_FORMS)) for m in ctx.tx.instant}
         columns.append({**p, "type": "annual", "values": row, "balance_sheet": inst,
-                        "derived": _derive(row, inst)})
+                        "derived": _derive(row, inst, ctx.tx)})
 
     if include_ltm and periods:
-        ltm = _ltm_column(gaap, periods[-1])
+        ltm = _ltm_column(ctx, periods[-1])
         if ltm:
             columns.append(ltm)
 
@@ -345,47 +442,52 @@ def standardize(companyfacts: dict, years: int = 5, include_ltm: bool = True) ->
                 if c:
                     accessions.update(c.get("accessions") or [c["accession"]])
 
+    notes = [
+        "Values are as most recently reported (restatements included); each cites its filing.",
+        "Balance-sheet items are period-end instants. Share counts are weighted diluted.",
+        "Derived metrics show their formula. EBITDA is null when operating income is not "
+        "reported (common for banks and insurers, where EBITDA is not meaningful).",
+    ]
+    if ctx.tx is IFRS:
+        notes.append("IFRS filer (20-F/40-F): figures follow IFRS, not US GAAP. Interim results "
+                     "are furnished on 6-K without XBRL, so there is no LTM column.")
     return {
         "cik": cik,
         "entity_name": companyfacts.get("entityName"),
-        "currency": "USD",
-        "notes": [
-            "Values are as most recently reported (restatements included); each cites its filing.",
-            "Balance-sheet items are period-end instants. Share counts are weighted diluted.",
-            "Derived metrics show their formula. EBITDA is null when operating income is not "
-            "reported (common for banks and insurers, where EBITDA is not meaningful).",
-        ],
+        "taxonomy": ctx.tx.prefix,
+        "currency": ctx.currency,
+        "notes": notes,
         "periods": columns,
         "filings": {a: {"url": filing_url(cik, a)} for a in sorted(accessions)},
     }
 
 
-def _ltm_column(gaap: dict, last_fy: dict) -> dict | None:
-    ytd = _latest_quarter_ytd(gaap, last_fy["end"])
+def _ltm_column(ctx: Ctx, last_fy: dict) -> dict | None:
+    ytd = _latest_quarter_ytd(ctx, last_fy["end"])
     if ytd is None:
         return None
 
     row: dict[str, dict | None] = {}
-    for m in DURATION_CONCEPTS:
+    for m in ctx.tx.duration:
         if m in ("diluted_shares", "diluted_eps"):
             # Not additive: use the latest quarter's YTD figure as-is.
-            f = _duration_value(gaap, m, ytd[0], ytd[1], QUARTERLY_FORMS)
-            row[m] = _cell(f)
+            f = _duration_value(ctx, m, ytd[0], ytd[1], QUARTERLY_FORMS)
+            row[m] = _cell(ctx, f)
             continue
         row[m] = None
         # FY + YTD - prior YTD is only valid when one concept covers all three.
-        for concept in DURATION_CONCEPTS[m]:
-            parts = _ltm_parts(gaap, m, concept, last_fy, ytd)
+        for concept in ctx.tx.duration[m]:
+            parts = _ltm_parts(ctx, m, concept, last_fy, ytd)
             if parts:
                 fy, cur, prev = parts
                 row[m] = {
                     "value": fy.value + cur.value - prev.value,
-                    "concept": f"us-gaap:{concept}",
+                    "concept": f"{ctx.tx.prefix}:{concept}",
                     "formula": "FY + YTD - prior YTD",
                     "accessions": sorted({fy.accession, cur.accession, prev.accession}),
                 }
                 break
-    inst = {m: _cell(_instant_value(gaap, m, ytd[1], QUARTERLY_FORMS)) for m in INSTANT_CONCEPTS}
+    inst = {m: _cell(ctx, _instant_value(ctx, m, ytd[1], QUARTERLY_FORMS)) for m in ctx.tx.instant}
     days = (date.fromisoformat(ytd[1]) - date.fromisoformat(ytd[0])).days + 1
     return {
         # Exact span, not "6M": 52/53-week filers (PepsiCo) have 12- and 16-week quarters.
@@ -396,7 +498,7 @@ def _ltm_column(gaap: dict, last_fy: dict) -> dict | None:
         "ytd": {"start": ytd[0], "end": ytd[1], "days": days},
         "values": row,
         "balance_sheet": inst,
-        "derived": _derive(row, inst),
+        "derived": _derive(row, inst, ctx.tx),
     }
 
 

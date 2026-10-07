@@ -22,11 +22,16 @@ UA = {"User-Agent": os.environ["SEC_USER_AGENT"]}
 # AAPL/MSFT: clean filers. CAT: net-income tag change + segment-only 10-Q debt.
 # JPM: bank. KO: XBRL API lagging the latest 10-Q. GOOGL: per-class cover page.
 # XOM: new holding-company registrant with no history.
-TICKERS = ["AAPL", "MSFT", "CAT", "JPM", "KO", "GOOGL", "XOM"]
+TICKERS = ["AAPL", "MSFT", "CAT", "JPM", "KO", "GOOGL", "XOM",
+           # IFRS 20-F filers. TM: legacy us-gaap facts too, no standard capex
+           # concept. SAP: EUR. UL: debt only as loans-received parts.
+           "TM", "SAP", "UL"]
 SINCE = "2021-01-01"
 KEEP = ({c for cs in xbrl.DURATION_CONCEPTS.values() for c in cs}
         | {c for cs in xbrl.INSTANT_CONCEPTS.values() for c in cs}
         | {"CommonStockSharesOutstanding"})
+KEEP_IFRS = ({c for cs in xbrl.IFRS_DURATION_CONCEPTS.values() for c in cs}
+             | {c for cs in xbrl.IFRS_INSTANT_CONCEPTS.values() for c in cs})
 
 
 def get(url, headers=UA):
@@ -38,7 +43,8 @@ def get(url, headers=UA):
 
 def trim_facts(cf):
     facts = {}
-    for ns, keep in (("us-gaap", KEEP), ("dei", {"EntityCommonStockSharesOutstanding"})):
+    for ns, keep in (("us-gaap", KEEP), ("ifrs-full", KEEP_IFRS),
+                     ("dei", {"EntityCommonStockSharesOutstanding"})):
         src = cf.get("facts", {}).get(ns, {})
         out = {}
         for concept in sorted(keep & set(src)):

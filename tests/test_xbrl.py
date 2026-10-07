@@ -87,7 +87,7 @@ def test_segment_only_debt_is_null_not_zero(facts):
 
 
 def test_new_registrant_without_history_raises(facts):
-    with pytest.raises(xbrl.NoUsGaapFacts):
+    with pytest.raises(xbrl.NoUsGaapFacts, match="predecessor"):
         xbrl.standardize(facts("XOM"))
 
 
@@ -168,8 +168,49 @@ def test_multi_class_cover_page_is_summed():
     assert (s["value"], s["classes_summed"], s["accession"]) == (350, 2, "x")
 
 
-def test_ifrs_filer_is_named_as_such():
-    cf = companyfacts({"Revenues": [fact(1, "2010-04-01", "2011-03-31", "old", "2011-06-20", form="20-F")]})
-    cf["facts"]["ifrs-full"] = {"Revenue": {"units": {"JPY": []}}}
-    with pytest.raises(xbrl.NoUsGaapFacts, match="IFRS"):
-        xbrl.standardize(cf)
+def test_ifrs_filer_is_read_in_its_own_currency(facts):
+    r = xbrl.standardize(facts("SAP"), years=3)
+    assert (r["taxonomy"], r["currency"]) == ("ifrs-full", "EUR")
+    fy = r["periods"][-1]
+    assert fy["values"]["revenue"] == {
+        "value": 36_800_000_000, "concept": "ifrs-full:Revenue", "accession": fy["values"]["revenue"]["accession"]}
+    # Attributable to owners, not total profit including minorities.
+    assert fy["values"]["net_income"]["concept"] == "ifrs-full:ProfitLossAttributableToOwnersOfParent"
+    assert fy["derived"]["total_debt"]["formula"] == "borrowings"
+    assert all(p["type"] == "annual" for p in r["periods"])  # 6-K interims carry no XBRL
+    assert any("IFRS filer" in n for n in r["notes"])
+
+
+def test_toyota_ifrs_with_no_standard_capex_concept(facts):
+    r = xbrl.standardize(facts("TM"), years=1)
+    fy = r["periods"][0]
+    assert (r["taxonomy"], r["currency"], fy["end"]) == ("ifrs-full", "JPY", "2025-03-31")
+    assert fy["values"]["revenue"]["value"] == 48_036_704_000_000
+    # Toyota tags capex only with a company-specific concept: null, not a guess.
+    assert fy["values"]["capex"] is None and fy["derived"]["free_cash_flow"] is None
+    assert fy["derived"]["ebitda"]["value"] == 4_795_586_000_000 + 2_251_233_000_000
+
+
+def test_newest_taxonomy_wins_for_a_filer_with_both():
+    # Like Sony: US GAAP 20-Fs until a switch to IFRS.
+    cf = companyfacts({"Revenues": [fact(100, "2019-04-01", "2020-03-31", "old", "2020-06-20", form="20-F", fy=2020)]})
+    cf["facts"]["ifrs-full"] = {"Revenue": {"units": {"JPY": [
+        fact(9000, "2024-04-01", "2025-03-31", "new", "2025-06-20", form="20-F", fy=2025)]}}}
+    r = xbrl.standardize(cf, include_ltm=False)
+    assert (r["taxonomy"], r["currency"]) == ("ifrs-full", "JPY")
+    assert r["periods"][-1]["values"]["revenue"]["value"] == 9000
+
+    cf["facts"]["us-gaap"]["Revenues"]["units"]["USD"].append(
+        fact(120, "2025-04-01", "2026-03-31", "newer", "2026-06-20", form="20-F", fy=2026))
+    assert xbrl.standardize(cf, include_ltm=False)["taxonomy"] == "us-gaap"
+
+
+@pytest.mark.parametrize("inst, value, formula", [
+    ({"borrowings": 30, "borrowings_noncurrent": 20, "borrowings_current": 10}, 30, "borrowings"),
+    ({"borrowings_noncurrent": 20, "borrowings_current": 10}, 30, "borrowings_noncurrent + borrowings_current"),
+    ({"borrowings_current": 10}, 10, "borrowings_current (no non-current borrowings concept reported: likely incomplete)"),
+    ({}, None, "no debt concepts reported"),
+])
+def test_ifrs_debt_never_double_counts(inst, value, formula):
+    cells = {k: {"value": float(v)} for k, v in inst.items()}
+    assert xbrl.ifrs_total_debt(cells) == (value if value is None else float(value), formula)

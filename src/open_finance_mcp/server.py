@@ -385,6 +385,9 @@ def build_server(fetcher: Fetcher | None = None) -> MCPServer:
 
     async def _comp_row(ticker: str) -> dict:
         fin = await guarded(_financials(ticker, 1, True))
+        if fin["currency"] != "USD":
+            raise ToolError(f"{fin['ticker']} reports in {fin['currency']}; its US-listed price is "
+                            "in USD, so multiples would mix currencies.")
         mkt = await guarded(_market(ticker))
         col = fin["periods"][-1]
         v, d = col["values"], col["derived"]
