@@ -9,7 +9,7 @@ import respx
 from mcp import Client
 
 from open_finance_mcp.fetch import Fetcher
-from open_finance_mcp.server import build_server, enterprise_value
+from open_finance_mcp.server import build_server, enterprise_value, is_foreign_private_issuer, staleness_warning
 from conftest import FIX, load
 
 UA = "open-finance-mcp tests test@example.com"
@@ -230,3 +230,28 @@ async def test_earnings_release_errors_are_actionable(call):
     assert err and "available: EX-99.1" in msg
     err, msg = await call("get_earnings_release", {"ticker": "AAPL", "which": 99})
     assert err and "which must be" in msg
+
+
+def _sub(*rows):
+    keys = ("form", "filingDate", "reportDate", "accessionNumber", "primaryDocument", "primaryDocDescription")
+    return {"filings": {"recent": {k: [r.get(k, "") for r in rows] for k in keys}}}
+
+
+def test_staleness_covers_20f_and_points_to_the_filing():
+    sub = _sub({"form": "20-F", "filingDate": "2026-06-24", "reportDate": "2026-03-31", "accessionNumber": "new"},
+               {"form": "6-K", "filingDate": "2026-08-01", "accessionNumber": "x"})
+    w = staleness_warning(sub, {"old"})
+    assert "20-F filed 2026-06-24" in w and "get_filings" in w and "earnings_release" not in w
+    assert staleness_warning(sub, {"new"}) is None
+
+
+def test_foreign_private_issuer_detection():
+    assert is_foreign_private_issuer(_sub({"form": "20-F"}, {"form": "6-K"}))
+    assert not is_foreign_private_issuer(_sub({"form": "10-K"}, {"form": "8-K"}))
+    # A former FPI that now files 10-Ks is domestic.
+    assert not is_foreign_private_issuer(_sub({"form": "10-K"}, {"form": "20-F"}))
+
+
+async def test_ifrs_financials_come_back_in_reporting_currency(call):
+    err, out = await call("get_financials", {"ticker": "SAP", "years": 1})
+    assert not err and (out["taxonomy"], out["currency"]) == ("ifrs-full", "EUR")

@@ -108,9 +108,19 @@ def _recent_filings(sub: dict) -> list[dict]:
     return [dict(zip(keys, vals)) for vals in zip(*(r.get(k, []) for k in keys))]
 
 
+PERIODIC_FORMS = ("10-K", "10-Q", "10-K/A", "10-Q/A", "20-F", "20-F/A", "40-F", "40-F/A")
+FOREIGN_ANNUAL_FORMS = ("20-F", "20-F/A", "40-F", "40-F/A")
+
+
+def is_foreign_private_issuer(sub: dict) -> bool:
+    """Files annual reports on 20-F/40-F (and interims on 6-K) rather than 10-K."""
+    forms = [f["form"] for f in _recent_filings(sub)]
+    return any(f in FOREIGN_ANNUAL_FORMS for f in forms) and "10-K" not in forms
+
+
 def staleness_warning(sub: dict, cited_accessions: set[str]) -> str | None:
-    """Warn when EDGAR lists a newer 10-K/10-Q than the XBRL API has processed."""
-    periodic = [f for f in _recent_filings(sub) if f["form"] in ("10-K", "10-Q", "10-K/A", "10-Q/A")]
+    """Warn when EDGAR lists a newer annual/quarterly report than the XBRL API has processed."""
+    periodic = [f for f in _recent_filings(sub) if f["form"] in PERIODIC_FORMS]
     if not periodic:
         return None
     newest = max(periodic, key=lambda f: f["filingDate"])
@@ -118,7 +128,8 @@ def staleness_warning(sub: dict, cited_accessions: set[str]) -> str | None:
         return None
     return (f"EDGAR lists a {newest['form']} filed {newest['filingDate']} (period {newest['reportDate']}) "
             f"that the XBRL company-facts API does not include yet; figures stop at the prior filing. "
-            f"get_earnings_release has the newest quarter's press release.")
+            + ("Open it with get_filings." if newest["form"] in FOREIGN_ANNUAL_FORMS
+               else "get_earnings_release has the newest quarter's press release."))
 
 
 def enterprise_value(market_cap: float | None, column: dict, financial: bool) -> dict:
@@ -203,6 +214,10 @@ def build_server(fetcher: Fetcher | None = None) -> MCPServer:
         as_of = meta.get("regularMarketTime")
         facts = await data.facts(int(co["cik"]))
         shares = xbrl.shares_outstanding(facts)
+        # A foreign issuer's US listing is usually an ADR whose price covers a
+        # ratio of ordinary shares that XBRL doesn't record (Toyota: 1 ADR = 10
+        # shares), so price x ordinary shares can be off by that ratio.
+        foreign = is_foreign_private_issuer(await data.submissions(int(co["cik"])))
 
         out: dict = {
             "ticker": co["ticker"],
@@ -212,9 +227,14 @@ def build_server(fetcher: Fetcher | None = None) -> MCPServer:
             "price_as_of": date.fromtimestamp(as_of).isoformat() if as_of else None,
             "price_source": "Yahoo Finance chart API (unofficial; verify before publishing)",
             "shares_outstanding": shares,
-            "market_cap": price * shares["value"] if shares else None,
+            "market_cap": price * shares["value"] if shares and not foreign else None,
             "notes": [],
         }
+        if foreign:
+            out["notes"].append(
+                "Foreign private issuer (20-F/40-F): the US price is likely per ADR, and the ADR "
+                "ratio isn't in XBRL, so market cap is not computed. Shares are ordinary shares; "
+                "take the ratio from the 20-F cover page before multiplying.")
         if shares and shares["classes_summed"] != 1:  # several classes, or unknown (fallback)
             out["notes"].append(
                 f"Share count may cover several share classes but is priced at {symbol}; "
@@ -387,7 +407,7 @@ def build_server(fetcher: Fetcher | None = None) -> MCPServer:
         fin = await guarded(_financials(ticker, 1, True))
         if fin["currency"] != "USD":
             raise ToolError(f"{fin['ticker']} reports in {fin['currency']}; its US-listed price is "
-                            "in USD, so multiples would mix currencies.")
+                            "in USD (and likely per ADR), so multiples would mix currencies.")
         mkt = await guarded(_market(ticker))
         col = fin["periods"][-1]
         v, d = col["values"], col["derived"]
