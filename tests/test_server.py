@@ -50,7 +50,8 @@ def mock_upstream(router: respx.MockRouter) -> None:
     router.get(url__regex=r"https://data\.sec\.gov/submissions/.*").mock(side_effect=by_cik("submissions"))
     router.get(url__regex=r".*/chart/AAPL\?.*").respond(json=load("chart_AAPL.json"))
     router.get(url__regex=r".*/chart/%5EGSPC\?.*|.*/chart/\^GSPC\?.*").respond(json=load("chart_GSPC.json"))
-    router.get(url__regex=r"https://fred\.stlouisfed\.org/.*").respond(text=load("fred_DGS10.csv"))
+    router.get(url__regex=r"https://fred\.stlouisfed\.org/.*id=DEXJPUS").respond(text=load("fred_DEXJPUS.csv"))
+    router.get(url__regex=r"https://fred\.stlouisfed\.org/.*id=DGS10").respond(text=load("fred_DGS10.csv"))
     # Apple's earnings 8-K: its index page, and any document in it (the EX-99.1).
     router.get(url__regex=r"https://www\.sec\.gov/Archives/edgar/data/320193/.*-index\.htm").respond(
         text=load("release_AAPL_index.htm"))
@@ -76,7 +77,7 @@ async def test_tools_are_listed_read_only(tmp_path):
         tools = (await client.list_tools()).tools
     assert {t.name for t in tools} == {"lookup_company", "get_financials", "get_filings",
                                        "get_market_data", "get_treasury_yield", "get_comps",
-                                       "get_earnings_release"}
+                                       "get_earnings_release", "get_fx_rate"}
     assert all(t.annotations.read_only_hint for t in tools)
 
 
@@ -255,3 +256,33 @@ def test_foreign_private_issuer_detection():
 async def test_ifrs_financials_come_back_in_reporting_currency(call):
     err, out = await call("get_financials", {"ticker": "SAP", "years": 1})
     assert not err and (out["taxonomy"], out["currency"]) == ("ifrs-full", "EUR")
+
+
+async def test_fx_rate_is_dollars_per_unit(call):
+    from open_finance_mcp import market
+    obs = market.parse_fred_csv(load("fred_DEXJPUS.csv"))
+    err, out = await call("get_fx_rate", {"currency": "jpy"})
+    assert not err and out["usd_per_unit"] == pytest.approx(1 / obs[-1][1])
+    assert out["series_value"] == obs[-1][1] and "DEXJPUS" in out["source"]
+
+
+async def test_fx_rate_on_a_weekend_uses_the_prior_business_day(call):
+    err, out = await call("get_fx_rate", {"currency": "JPY", "on": "2026-03-29"})  # a Sunday
+    assert not err and "on or before 2026-03-29" in out["basis"] and "2026-03-27" in out["basis"]
+
+
+async def test_fx_rate_period_average(call):
+    from open_finance_mcp import market
+    obs = market.parse_fred_csv(load("fred_DEXJPUS.csv"))
+    window = [v for d, v in obs if "2025-04-01" <= d <= "2026-03-31"]
+    err, out = await call("get_fx_rate", {"currency": "JPY", "average_from": "2025-04-01", "average_to": "2026-03-31"})
+    assert not err and f"average of {len(window)} daily rates" in out["basis"]
+    assert out["usd_per_unit"] == pytest.approx(len(window) / sum(window))
+
+
+async def test_fx_rate_errors(call):
+    assert (await call("get_fx_rate", {"currency": "USD"}))[0]
+    err, msg = await call("get_fx_rate", {"currency": "XYZ"})
+    assert err and "EUR" in msg
+    err, msg = await call("get_fx_rate", {"currency": "JPY", "average_from": "2026-01-01"})
+    assert err and "both" in msg

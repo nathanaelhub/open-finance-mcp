@@ -49,3 +49,16 @@ def test_chart_errors_are_reported():
 def test_fred_csv_skips_holiday_placeholders():
     text = "observation_date,DGS10\n2026-09-24,5.18\n2026-09-25,.\n2026-09-28,5.24\n"
     assert market.parse_fred_csv(text) == [("2026-09-24", 5.18), ("2026-09-28", 5.24)]
+
+
+def test_fx_quotes_normalize_to_dollars_per_unit():
+    assert market.usd_per_unit(1.12, "usd_per") == 1.12      # DEXUSEU: dollars per euro
+    assert market.usd_per_unit(160.0, "per_usd") == 1 / 160  # DEXJPUS: yen per dollar
+
+
+def test_fx_on_falls_back_to_the_last_prior_observation():
+    obs = [("2026-03-26", 150.0), ("2026-03-27", 151.0), ("2026-03-30", 152.0)]
+    assert market.fx_on(obs, "2026-03-29") == ("2026-03-27", 151.0)
+    assert market.fx_on(obs, "2026-03-30") == ("2026-03-30", 152.0)
+    with pytest.raises(ValueError, match="series starts"):
+        market.fx_on(obs, "2026-01-01")

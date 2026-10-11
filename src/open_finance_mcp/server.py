@@ -378,6 +378,37 @@ def build_server(fetcher: Fetcher | None = None) -> MCPServer:
         return await guarded(run())
 
     @mcp.tool(annotations=READ_ONLY)
+    async def get_fx_rate(currency: str, on: str | None = None, average_from: str | None = None,
+                          average_to: str | None = None) -> dict:
+        """US dollars per one unit of `currency`, from FRED's daily H.10 rates.
+
+        Latest by default; `on` (YYYY-MM-DD) gives the closing rate for a
+        balance-sheet date; `average_from`/`average_to` give the period
+        average, the rate IFRS uses for income-statement items.
+        """
+        async def run():
+            cur = currency.strip().upper()
+            if cur == "USD":
+                raise ToolError("USD needs no conversion")
+            if cur not in market.FX_SERIES:
+                raise ToolError(f"unsupported currency {cur}; supported: {', '.join(sorted(market.FX_SERIES))}")
+            series, quoted = market.FX_SERIES[cur]
+            obs = await data.fred(series)
+            source = f"FRED {series} (H.10 noon buying rate), https://fred.stlouisfed.org/series/{series}"
+            if average_from or average_to:
+                if not (average_from and average_to):
+                    raise ToolError("pass both average_from and average_to")
+                mean, n = market.fx_average(obs, average_from, average_to)
+                return {"currency": cur, "usd_per_unit": market.usd_per_unit(mean, quoted),
+                        "basis": f"average of {n} daily rates {average_from} to {average_to}",
+                        "series_value": round(mean, 6), "source": source}
+            d, v = market.fx_on(obs, on) if on else obs[-1]
+            return {"currency": cur, "usd_per_unit": market.usd_per_unit(v, quoted),
+                    "basis": f"rate on {d}" + (f" (last observation on or before {on})" if on and d != on else ""),
+                    "series_value": v, "source": source}
+        return await guarded(run())
+
+    @mcp.tool(annotations=READ_ONLY)
     async def get_comps(tickers: list[str]) -> dict:
         """Trading comparables: market cap, EV, LTM revenue/EBITDA/net income, EV/Revenue, EV/EBITDA, P/E.
 
@@ -407,7 +438,8 @@ def build_server(fetcher: Fetcher | None = None) -> MCPServer:
         fin = await guarded(_financials(ticker, 1, True))
         if fin["currency"] != "USD":
             raise ToolError(f"{fin['ticker']} reports in {fin['currency']}; its US-listed price is "
-                            "in USD (and likely per ADR), so multiples would mix currencies.")
+                            "in USD (and likely per ADR), so multiples would mix currencies. Convert "
+                            "with get_fx_rate and the ADR ratio from the 20-F cover page.")
         mkt = await guarded(_market(ticker))
         col = fin["periods"][-1]
         v, d = col["values"], col["derived"]

@@ -78,6 +78,48 @@ def beta(stock: dict[tuple[int, int], float], market: dict[tuple[int, int], floa
     return cov / var, n
 
 
+# FRED H.10 daily noon buying rates. Each entry is (series, quoted as): "per_usd"
+# means units of the currency per US dollar (DEXJPUS = yen per dollar);
+# "usd_per" means dollars per unit (DEXUSEU = dollars per euro).
+FX_SERIES: dict[str, tuple[str, str]] = {
+    "EUR": ("DEXUSEU", "usd_per"), "GBP": ("DEXUSUK", "usd_per"),
+    "AUD": ("DEXUSAL", "usd_per"), "NZD": ("DEXUSNZ", "usd_per"),
+    "JPY": ("DEXJPUS", "per_usd"), "CHF": ("DEXSZUS", "per_usd"),
+    "CAD": ("DEXCAUS", "per_usd"), "CNY": ("DEXCHUS", "per_usd"),
+    "DKK": ("DEXDNUS", "per_usd"), "SEK": ("DEXSDUS", "per_usd"),
+    "NOK": ("DEXNOUS", "per_usd"), "KRW": ("DEXKOUS", "per_usd"),
+    "INR": ("DEXINUS", "per_usd"), "MXN": ("DEXMXUS", "per_usd"),
+    "BRL": ("DEXBZUS", "per_usd"), "HKD": ("DEXHKUS", "per_usd"),
+    "TWD": ("DEXTAUS", "per_usd"), "SGD": ("DEXSIUS", "per_usd"),
+}
+
+
+def usd_per_unit(value: float, quoted: str) -> float:
+    """Normalize a FRED quote to US dollars per one unit of the currency."""
+    return value if quoted == "usd_per" else 1.0 / value
+
+
+def fx_on(obs: list[tuple[str, float]], on: str) -> tuple[str, float]:
+    """The last observation on or before ``on`` (FRED skips holidays)."""
+    prior = [o for o in obs if o[0] <= on]
+    if not prior:
+        raise ValueError(f"no observation on or before {on}; series starts {obs[0][0]}")
+    return prior[-1]
+
+
+def fx_average(obs: list[tuple[str, float]], start: str, end: str) -> tuple[float, int]:
+    """Mean of daily observations in [start, end] and how many there were.
+
+    IFRS translates income-statement items at average rates and balance sheets
+    at the closing rate, so a fiscal-year average is the right rate for revenue.
+    The mean is taken of the series as quoted, then normalized by the caller.
+    """
+    window = [v for d, v in obs if start <= d <= end]
+    if not window:
+        raise ValueError(f"no observations between {start} and {end}")
+    return sum(window) / len(window), len(window)
+
+
 def parse_fred_csv(text: str) -> list[tuple[str, float]]:
     """FRED CSV -> [(date, value)], skipping the '.' placeholders for holidays."""
     rows = list(csv.reader(io.StringIO(text)))
