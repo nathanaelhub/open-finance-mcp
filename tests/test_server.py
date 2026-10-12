@@ -52,6 +52,9 @@ def mock_upstream(router: respx.MockRouter) -> None:
     router.get(url__regex=r".*/chart/%5EGSPC\?.*|.*/chart/\^GSPC\?.*").respond(json=load("chart_GSPC.json"))
     router.get(url__regex=r"https://fred\.stlouisfed\.org/.*id=DEXJPUS").respond(text=load("fred_DEXJPUS.csv"))
     router.get(url__regex=r"https://fred\.stlouisfed\.org/.*id=DGS10").respond(text=load("fred_DGS10.csv"))
+    router.get(url__regex=r"https://efts\.sec\.gov/LATEST/search-index\?keysTyped=exxon%20mobil").respond(
+        json=load("efts_exxon_mobil.json"))
+    router.get(url__regex=r"https://efts\.sec\.gov/.*").respond(json={"hits": {"hits": []}})
     # Apple's earnings 8-K: its index page, and any document in it (the EX-99.1).
     router.get(url__regex=r"https://www\.sec\.gov/Archives/edgar/data/320193/.*-index\.htm").respond(
         text=load("release_AAPL_index.htm"))
@@ -84,6 +87,16 @@ async def test_tools_are_listed_read_only(tmp_path):
 async def test_lookup_matches_ticker_then_name(call):
     err, out = await call("lookup_company", {"query": "exxon"})
     assert not err and out["result"][0]["ticker"] == "XOM"
+    assert out["result"][0]["source"] == "SEC ticker list"
+
+
+async def test_lookup_finds_registrants_without_a_ticker(call):
+    # The ticker list has only the new holding company; the predecessor that
+    # holds the 10-K history (CIK 34088) is in EDGAR's company index.
+    err, out = await call("lookup_company", {"query": "exxon mobil"})
+    hit = next(r for r in out["result"] if r["cik"] == 34088)
+    assert hit == {"cik": 34088, "name": "EXXON MOBIL CORP", "ticker": None,
+                   "exchange": None, "source": "EDGAR company search"}
 
 
 async def test_financials_carry_citations_and_no_warnings_for_a_clean_filer(call):

@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import statistics
 from datetime import date
+from urllib.parse import quote
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -21,6 +22,8 @@ from .fetch import ConfigError, Fetcher, UpstreamError
 TICKERS_URL = "https://www.sec.gov/files/company_tickers_exchange.json"
 FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
+# The endpoint behind EDGAR's company-search box (not a documented API).
+ENTITY_SEARCH_URL = "https://efts.sec.gov/LATEST/search-index?keysTyped={q}"
 
 DAY = 86_400
 TTL_TICKERS = 7 * DAY
@@ -83,6 +86,18 @@ class Data:
                 return c
         raise ToolError(f"Unknown ticker {ticker!r}. Use lookup_company to search by name, "
                         "or pass a CIK such as 'CIK0000320193'.")
+
+    async def entity_search(self, query: str) -> list[dict]:
+        """EDGAR entities matching ``query``, including ones with no current ticker."""
+        payload = await self.f.sec_json(ENTITY_SEARCH_URL.format(q=quote(query)), TTL_TICKERS)
+        out = []
+        for h in payload.get("hits", {}).get("hits", []):
+            src = h.get("_source", {})
+            tickers = [t.strip() for t in str(src.get("tickers") or "").split(",") if t.strip()]
+            # "ExxonMobil Holdings Corp (XOM)" -> "ExxonMobil Holdings Corp"
+            name = re.sub(r"\s*\([A-Z0-9., -]+\)$", "", str(src.get("entity", "")))
+            out.append({"cik": int(h["_id"]), "name": name, "ticker": tickers[0] if tickers else None})
+        return out
 
     async def facts(self, cik: int) -> dict:
         return await self.f.sec_json(FACTS_URL.format(cik=cik), TTL_FACTS)
@@ -260,16 +275,34 @@ def build_server(fetcher: Fetcher | None = None) -> MCPServer:
 
     @mcp.tool(annotations=READ_ONLY)
     async def lookup_company(query: str, limit: int = 10) -> list[dict]:
-        """Find SEC registrants by ticker or name. Returns ticker, name, CIK and exchange."""
+        """Find SEC registrants by ticker or name. Returns ticker, name, CIK and exchange.
+
+        Searches SEC's ticker list, then EDGAR's company index, which also has
+        registrants with no current ticker (a predecessor company, a
+        financing subsidiary). Pass their CIK as `ticker` to other tools.
+        """
         async def run():
             q = query.strip().upper()
             if not q:
                 raise ToolError("query is empty")
+            n = max(1, min(limit, 50))
             rows = await data.companies()
             exact = [c for c in rows if str(c["ticker"]).upper() == q]
             by_name = [c for c in rows if q in str(c["name"]).upper() and c not in exact]
-            return [{"ticker": c["ticker"], "name": c["name"], "cik": c["cik"], "exchange": c.get("exchange")}
-                    for c in (exact + by_name)[:max(1, min(limit, 50))]]
+            out = [{"ticker": c["ticker"], "name": c["name"], "cik": c["cik"],
+                    "exchange": c.get("exchange"), "source": "SEC ticker list"}
+                   for c in (exact + by_name)[:n]]
+            if len(out) < n:
+                seen = {int(c["cik"]) for c in out}
+                try:
+                    hits = await data.entity_search(query.strip())
+                except UpstreamError:
+                    hits = []  # best effort: the ticker-list results still stand
+                for h in hits:
+                    if h["cik"] not in seen and len(out) < n:
+                        seen.add(h["cik"])
+                        out.append({**h, "exchange": None, "source": "EDGAR company search"})
+            return out
         return await guarded(run())
 
     @mcp.tool(annotations=READ_ONLY)
