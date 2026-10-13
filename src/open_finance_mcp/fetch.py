@@ -18,6 +18,9 @@ from pathlib import Path
 import httpx
 
 SEC_MIN_INTERVAL = 0.12  # seconds between SEC requests (< 10/s)
+# Longer than the longest TTL any caller uses (30 days for filed documents),
+# so anything older can never be served again.
+CACHE_MAX_AGE = 31 * 86_400
 
 
 class ConfigError(RuntimeError):
@@ -46,6 +49,35 @@ class Fetcher:
                         else os.environ.get("SEC_USER_AGENT") or os.environ.get("OPEN_FINANCE_SEC_USER_AGENT"))
         self._sec_lock = asyncio.Lock()
         self._sec_last = 0.0
+        self.prune_cache()
+
+    def prune_cache(self, max_age: float = CACHE_MAX_AGE) -> int:
+        """Delete cache entries too old to be served, and orphaned temp files.
+
+        Expired entries are otherwise only replaced when the same URL is
+        fetched again, so the cache grows without bound (earnings exhibits
+        alone are about 1 MB each). Returns the number of files removed.
+        """
+        removed = 0
+        now = time.time()
+        cutoff = now - max_age
+        # Another server process sharing the cache may be mid-write.
+        tmp_cutoff = now - 3600
+        try:
+            entries = list(self._cache.iterdir())
+        except OSError:
+            return 0
+        for path in entries:
+            if path.suffix not in (".json", ".tmp"):
+                continue  # only ever touch files this cache wrote
+            try:
+                mtime = path.stat().st_mtime
+                if mtime < (tmp_cutoff if path.suffix == ".tmp" else cutoff):
+                    path.unlink()
+                    removed += 1
+            except OSError:
+                pass
+        return removed
 
     async def aclose(self) -> None:
         await self._client.aclose()
