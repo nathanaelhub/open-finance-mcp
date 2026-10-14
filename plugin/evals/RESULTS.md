@@ -77,6 +77,13 @@ Failures were checked against transcripts before any number was used:
   unreachable by ticker (tools now accept a CIK).
 - This run found the baseline-search issue above and the two noisy rows.
 
+## Since this run
+
+IFRS filers are now standardized (Oct 2026), so in `ifrs-filer` the plugin
+arm would read Toyota's 20-F figures in yen rather than report a coverage
+gap. That case hasn't been re-run; its row reflects the server as of
+2026-10-02.
+
 ## Caveats
 
 3 runs per arm is a small sample. The data is live: the Coca-Cola case

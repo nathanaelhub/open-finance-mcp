@@ -37,11 +37,12 @@ READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=True, idempoten
 
 INSTRUCTIONS = """\
 Free financial data with citations: SEC EDGAR XBRL financials and filings,
-FRED Treasury yields, and Yahoo Finance prices/beta (unofficial source).
-Cite the accession/URL returned with each figure. EBITDA and net debt are
-derived and show their formula. For banks and insurers (flagged
-`financial_company`), EV-based multiples are not meaningful. US-GAAP filers
-only; foreign private issuers filing IFRS 20-F/40-F are not supported."""
+FRED Treasury yields and exchange rates, and Yahoo Finance prices/beta
+(unofficial source). Cite the accession/URL returned with each figure.
+EBITDA and net debt are derived and show their formula. For banks and
+insurers (flagged `financial_company`), EV-based multiples are not
+meaningful. IFRS filers (20-F/40-F) come back in their reporting currency
+(`currency`); convert with get_fx_rate before comparing with US companies."""
 
 
 def _is_financial(sic: str | None) -> bool:

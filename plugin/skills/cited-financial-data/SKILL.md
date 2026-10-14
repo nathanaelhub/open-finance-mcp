@@ -16,11 +16,13 @@ keep that source attached all the way into the deliverable.
 | Cash, debt, net debt | `get_financials` | `balance_sheet`, `derived.total_debt`, `derived.net_debt` |
 | Price, market cap, shares, beta | `get_market_data` | `price`, `market_cap`, `shares_outstanding`, `beta` |
 | Risk-free rate | `get_treasury_yield` (10Y) | `yield_pct` |
+| Exchange rate (USD per unit) | `get_fx_rate` | `usd_per_unit` |
 | Peer multiples in one call | `get_comps` | `comps[]`, `summary` |
 | Latest quarter, before it reaches XBRL | `get_earnings_release` | `text` (paged) |
 | Filing documents to quote or link | `get_filings` | `document_url` |
 
-Use `lookup_company` first when a name, not a ticker, is given. A CIK
+Use `lookup_company` first when a name, not a ticker, is given; it also
+finds registrants with no current ticker (a predecessor company). A CIK
 ("CIK0000034088") works anywhere a ticker does, for registrants without one.
 
 ## Citation rules
@@ -59,7 +61,20 @@ Item 2.02 also covers operating updates (delivery counts, pre-announcements),
 so confirm the document is the quarter's results; `which=1` gets the one
 before. Long releases are paged: pass `next_offset` back as `offset`.
 
-## Scope
+## Foreign filers (IFRS, 20-F/40-F)
 
-US-GAAP SEC filers only. Foreign private issuers (20-F/40-F, IFRS) are not
-covered; say so rather than improvising figures from memory.
+`get_financials` reads IFRS filers in their reporting currency: check
+`taxonomy` and `currency` before using a number, and say "IFRS" and the
+currency next to it. To compare with US companies, convert with
+`get_fx_rate`: the period **average** (`average_from`/`average_to` = the
+fiscal year) for revenue, EBITDA and income, and the rate **on** the
+balance-sheet date for cash and debt. Cite the FRED series.
+
+- There is no LTM column: interim results are on 6-K without XBRL.
+- `get_market_data` returns no market cap for foreign issuers, because the
+  US price is usually per ADR. Take the ADR ratio from the 20-F cover page
+  (open it with `get_filings`) and state it if you compute one.
+- A null concept (Toyota tags capex only with its own extension) stays
+  null; don't fill it from memory.
+- Captive-finance borrowings (carmakers) inflate net debt the way deposits
+  do for banks; say so if you use EV.

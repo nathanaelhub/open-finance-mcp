@@ -21,12 +21,13 @@ skills' citation requirement instead of treating sources as an afterthought.
 
 | Tool | Returns |
 |---|---|
-| `lookup_company` | Ticker, name, CIK and exchange for a ticker or name search |
+| `lookup_company` | Ticker, name, CIK and exchange for a ticker or name search, including registrants with no current ticker |
 | `get_financials` | Annual + LTM income statement, cash flow and balance sheet; derived EBITDA, FCF, total debt, net debt; per-value citations |
 | `get_filings` | Recent 10-K / 10-Q / 8-K (etc.) with document and index URLs |
 | `get_earnings_release` | Text of the latest (or an earlier) earnings press release from its Item 2.02 8-K, tables kept as rows, paged |
 | `get_market_data` | Price, cover-page shares outstanding, market cap, 5-year monthly beta vs the S&P 500 |
 | `get_treasury_yield` | Latest constant-maturity Treasury yield (3M–30Y) from FRED |
+| `get_fx_rate` | US dollars per unit of 18 currencies from FRED's H.10 rates: latest, on a date, or a period average |
 | `get_comps` | Peer table: market cap, EV, LTM revenue/EBITDA/net income, EV/Revenue, EV/EBITDA, P/E, with median and mean |
 
 All tools are read-only. Nothing needs an API key.
@@ -161,9 +162,35 @@ PepsiCo, Coca-Cola, Walmart and Tesla. Item 2.02 also covers non-earnings
 results announcements (Tesla files delivery numbers under it), so the tool
 tells the model to confirm what the document is rather than guessing.
 
+## Foreign filers (IFRS)
+
+Foreign private issuers file 20-F/40-F reports under IFRS, which SEC's API
+publishes in a separate `ifrs-full` taxonomy, in each company's own
+currency. `get_financials` reads them with an IFRS concept map (profit
+attributable to owners of the parent, IFRS `Borrowings` as current +
+non-current debt) and returns `taxonomy` and `currency` with the figures:
+Toyota comes back in yen, SAP and Unilever in euros, Novo Nordisk in kroner.
+A filer with both taxonomies (Sony moved from US GAAP to IFRS) is read from
+the one with the newest year. `get_fx_rate` supplies the FRED rate to
+convert with: a period average for income-statement items, the rate on the
+balance-sheet date for cash and debt.
+
+What it deliberately doesn't do:
+
+- **No LTM.** Interim results are furnished on 6-K without XBRL.
+- **No market cap.** A US listing is usually an ADR whose ratio of ordinary
+  shares isn't in XBRL (one Toyota ADR is 10 shares), so price x shares can
+  be off by that ratio. Price and share count are returned separately.
+- **No cross-currency comps.** `get_comps` refuses a non-USD reporter
+  instead of dividing a dollar price by yen earnings.
+- **No guessed concepts.** Toyota tags capex only with its own extension, so
+  capex and free cash flow are null, not estimated.
+
 ## Limitations
 
-- US-GAAP SEC filers only. IFRS filers (20-F/40-F) are not supported.
+- IFRS filers have annual data only, and market cap must be computed by hand
+  (see above). Captive-finance borrowings (carmakers) inflate net debt the way
+  deposits do for banks.
 - The XBRL company-facts API excludes dimensional (segment/class) facts and
   can lag EDGAR by weeks. Both cases are flagged rather than hidden.
 - Prices come from Yahoo Finance's unofficial chart endpoint. They are labeled
@@ -174,7 +201,7 @@ tells the model to confirm what the document is rather than guessing.
 
 ```bash
 uv sync
-uv run pytest            # 57 tests, offline: real filings trimmed into tests/fixtures
+uv run pytest            # 75 tests, offline: real filings trimmed into tests/fixtures
 SEC_USER_AGENT="Name you@example.com" uv run python scripts/make_fixtures.py   # refresh fixtures
 ```
 
