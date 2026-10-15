@@ -1,7 +1,7 @@
 {
   "name": "open-finance",
-  "version": "0.1.1",
-  "description": "Free, citable financial data for comps and DCF work: SEC EDGAR XBRL financials and filings, FRED Treasury yields, market prices and beta. No paid data subscription needed.",
+  "version": "0.2.0",
+  "description": "Free, citable financial data for comps and DCF work: SEC EDGAR financials (US GAAP and IFRS), filings and earnings releases, FRED Treasury yields and FX rates, market prices and beta. No paid data subscription needed.",
   "author": {
     "name": "Nathanael Johnson"
   },
@@ -19,7 +19,7 @@
       "command": "uvx",
       "args": [
         "--from",
-        "git+https://github.com/nathanaelhub/open-finance-mcp@v0.1.1",
+        "git+https://github.com/nathanaelhub/open-finance-mcp@v0.2.0",
         "open-finance-mcp"
       ],
       "env": {

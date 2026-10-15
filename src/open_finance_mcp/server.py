@@ -177,7 +177,7 @@ def enterprise_value(market_cap: float | None, column: dict, financial: bool) ->
 
 def build_server(fetcher: Fetcher | None = None) -> MCPServer:
     data = Data(fetcher or Fetcher())
-    mcp = MCPServer("open-finance", instructions=INSTRUCTIONS, version="0.1.1")
+    mcp = MCPServer("open-finance", instructions=INSTRUCTIONS, version="0.2.0")
 
     async def guarded(coro):
         try:
