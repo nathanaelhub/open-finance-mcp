@@ -62,3 +62,11 @@ def test_fx_on_falls_back_to_the_last_prior_observation():
     assert market.fx_on(obs, "2026-03-30") == ("2026-03-30", 152.0)
     with pytest.raises(ValueError, match="series starts"):
         market.fx_on(obs, "2026-01-01")
+
+
+def test_iso_date_pads_and_rejects():
+    assert market.iso_date(" 2026-3-31 ", "on") == "2026-03-31"
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        market.iso_date("31/03/2026", "on")
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        market.iso_date("2026-02-30", "on")

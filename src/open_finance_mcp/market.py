@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import io
 import math
+import re
 from datetime import UTC, date, datetime
 
 YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={range}&interval={interval}"
@@ -99,6 +100,21 @@ def usd_per_unit(value: float, quoted: str) -> float:
     return value if quoted == "usd_per" else 1.0 / value
 
 
+def iso_date(value: str, name: str) -> str:
+    """Validate a YYYY-MM-DD argument and return it zero-padded.
+
+    FRED dates are compared as strings, so "2026-3-31" would sort after
+    "2026-10-09" and silently select the wrong observation.
+    """
+    m = re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", value.strip())
+    try:
+        if m:
+            return date(*map(int, m.groups())).isoformat()
+    except ValueError:  # out of range, e.g. 2026-02-30
+        pass
+    raise ValueError(f"{name} must be a date as YYYY-MM-DD, got {value!r}")
+
+
 def fx_on(obs: list[tuple[str, float]], on: str) -> tuple[str, float]:
     """The last observation on or before ``on`` (FRED skips holidays)."""
     prior = [o for o in obs if o[0] <= on]
@@ -114,6 +130,8 @@ def fx_average(obs: list[tuple[str, float]], start: str, end: str) -> tuple[floa
     at the closing rate, so a fiscal-year average is the right rate for revenue.
     The mean is taken of the series as quoted, then normalized by the caller.
     """
+    if start > end:
+        raise ValueError(f"average_from {start} is after average_to {end}")
     window = [v for d, v in obs if start <= d <= end]
     if not window:
         raise ValueError(f"no observations between {start} and {end}")

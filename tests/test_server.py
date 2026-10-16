@@ -299,3 +299,14 @@ async def test_fx_rate_errors(call):
     assert err and "EUR" in msg
     err, msg = await call("get_fx_rate", {"currency": "JPY", "average_from": "2026-01-01"})
     assert err and "both" in msg
+
+
+async def test_fx_rate_rejects_dates_that_would_compare_wrong(call):
+    # "2026-3-31" sorts after "2026-10-09" as a string, so it used to return October's rate.
+    err, out = await call("get_fx_rate", {"currency": "JPY", "on": "2026-3-31"})
+    assert not err and out["basis"] == "rate on 2026-03-31"
+    err, msg = await call("get_fx_rate", {"currency": "JPY", "on": "March 31"})
+    assert err and "YYYY-MM-DD" in msg
+    err, msg = await call("get_fx_rate", {"currency": "JPY", "average_from": "2026-03-31",
+                                          "average_to": "2025-04-01"})
+    assert err and "after" in msg

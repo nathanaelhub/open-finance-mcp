@@ -432,13 +432,16 @@ def build_server(fetcher: Fetcher | None = None) -> MCPServer:
             if average_from or average_to:
                 if not (average_from and average_to):
                     raise ToolError("pass both average_from and average_to")
-                mean, n = market.fx_average(obs, average_from, average_to)
+                start = market.iso_date(average_from, "average_from")
+                end = market.iso_date(average_to, "average_to")
+                mean, n = market.fx_average(obs, start, end)
                 return {"currency": cur, "usd_per_unit": market.usd_per_unit(mean, quoted),
-                        "basis": f"average of {n} daily rates {average_from} to {average_to}",
+                        "basis": f"average of {n} daily rates {start} to {end}",
                         "series_value": round(mean, 6), "source": source}
-            d, v = market.fx_on(obs, on) if on else obs[-1]
+            day = market.iso_date(on, "on") if on else None
+            d, v = market.fx_on(obs, day) if day else obs[-1]
             return {"currency": cur, "usd_per_unit": market.usd_per_unit(v, quoted),
-                    "basis": f"rate on {d}" + (f" (last observation on or before {on})" if on and d != on else ""),
+                    "basis": f"rate on {d}" + (f" (last observation on or before {day})" if day and d != day else ""),
                     "series_value": v, "source": source}
         return await guarded(run())
 
