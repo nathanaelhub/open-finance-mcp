@@ -70,3 +70,10 @@ def test_iso_date_pads_and_rejects():
         market.iso_date("31/03/2026", "on")
     with pytest.raises(ValueError, match="YYYY-MM-DD"):
         market.iso_date("2026-02-30", "on")
+
+
+def test_price_date_is_the_exchange_trading_day():
+    # 2026-10-15 16:00:01 in New York is already 2026-10-16 in Tokyo.
+    meta = {"regularMarketTime": 1792094401, "gmtoffset": -14400}
+    assert market.exchange_date(meta) == date(2026, 10, 15)
+    assert market.exchange_date({}) is None

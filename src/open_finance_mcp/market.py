@@ -43,6 +43,19 @@ def parse_chart(payload: dict) -> dict:
     return {"meta": result.get("meta") or {}, "closes": closes}
 
 
+def exchange_date(meta: dict) -> date | None:
+    """The trading date of the last price, in the exchange's own time zone.
+
+    ``regularMarketTime`` is a Unix timestamp; converting it with the server's
+    local zone dates a 4 p.m. New York close as the next day anywhere east of
+    UTC+8. Yahoo sends the exchange's UTC offset as ``gmtoffset``.
+    """
+    ts = meta.get("regularMarketTime")
+    if ts is None:
+        return None
+    return datetime.fromtimestamp(ts + (meta.get("gmtoffset") or 0), UTC).date()
+
+
 def completed_month_closes(closes: list[tuple[date, float]], today: date) -> list[tuple[date, float]]:
     """One close per *completed* calendar month.
 

@@ -227,7 +227,6 @@ def build_server(fetcher: Fetcher | None = None) -> MCPServer:
         price = meta.get("regularMarketPrice")
         if price is None:
             raise ToolError(f"No price available for {symbol}")
-        as_of = meta.get("regularMarketTime")
         facts = await data.facts(int(co["cik"]))
         shares = xbrl.shares_outstanding(facts)
         # A foreign issuer's US listing is usually an ADR whose price covers a
@@ -240,7 +239,7 @@ def build_server(fetcher: Fetcher | None = None) -> MCPServer:
             "name": co["name"],
             "price": price,
             "currency": meta.get("currency"),
-            "price_as_of": date.fromtimestamp(as_of).isoformat() if as_of else None,
+            "price_as_of": (d.isoformat() if (d := market.exchange_date(meta)) else None),
             "price_source": "Yahoo Finance chart API (unofficial; verify before publishing)",
             "shares_outstanding": shares,
             "market_cap": price * shares["value"] if shares and not foreign else None,
@@ -260,7 +259,9 @@ def build_server(fetcher: Fetcher | None = None) -> MCPServer:
 
         try:
             index = await data.chart("^GSPC", "6y", "1mo")
-            today = date.today()
+            # The exchange's date, not the server's: a month is complete only
+            # once it has ended where the stock trades.
+            today = market.exchange_date(meta) or date.today()
             s = market.completed_month_closes(stock["closes"], today)[-61:]
             m = market.completed_month_closes(index["closes"], today)[-61:]
             b, n = market.beta(market.simple_returns(s), market.simple_returns(m))
