@@ -14,6 +14,7 @@ allowed_tools:
   - mcp__plugin_open-finance_open-finance__get_treasury_yield
   - mcp__plugin_open-finance_open-finance__get_comps
   - mcp__plugin_open-finance_open-finance__get_earnings_release
+  - mcp__plugin_open-finance_open-finance__get_fx_rate
   - WebSearch
   - WebFetch
   - Skill

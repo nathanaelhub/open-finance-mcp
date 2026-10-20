@@ -84,6 +84,20 @@ async def test_tools_are_listed_read_only(tmp_path):
     assert all(t.annotations.read_only_hint for t in tools)
 
 
+async def test_every_eval_case_can_call_every_tool(tmp_path):
+    # Eval runs only grant the tools a case lists; a tool missing from the
+    # lists is silently unavailable to the plugin arm.
+    from pathlib import Path
+    root = Path(__file__).parents[1]
+    async with Client(build_server(Fetcher(cache=tmp_path, sec_user_agent=UA))) as client:
+        names = {t.name for t in (await client.list_tools()).tools}
+    runner = (root / "scripts" / "run_evals.py").read_text()
+    assert names <= set(re.findall(r'"(\w+)"', runner))
+    for prompt in (root / "plugin" / "evals").glob("*/prompt.md"):
+        granted = set(re.findall(r"open-finance__(\w+)", prompt.read_text()))
+        assert names <= granted, f"{prompt.parent.name} lacks {names - granted}"
+
+
 async def test_lookup_matches_ticker_then_name(call):
     err, out = await call("lookup_company", {"query": "exxon"})
     assert not err and out["result"][0]["ticker"] == "XOM"
